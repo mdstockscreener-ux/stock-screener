@@ -1,44 +1,163 @@
 # NSE Stock Dashboard
 
-A React dashboard for visualizing NSE India historical stock data — price, volume, and delivery metrics.
+A full-stack **Next.js 15** dashboard for visualizing NSE India historical stock data — price, volume, and delivery metrics. Built with TypeScript, Recharts, and Next.js API Routes that handle NSE session management server-side.
+
+---
 
 ## Features
 
-- Search any NSE symbol with a custom date range
-- Summary stat cards (close, period change, high/low, volume, delivery)
-- Price chart with close price and VWAP
-- Volume bar chart
-- Delivery quantity & percentage chart
-- Sortable historical data table
+- 🔍 **Smart symbol search** — autocomplete powered by NSE's search API
+- 📅 **Flexible date ranges** — quick presets (1W, 1M, 3M, 6M, 1Y) or custom `DD-MM-YYYY` input
+- 📊 **Interactive charts** — Price (close + VWAP), Volume, and Delivery percentage
+- 📋 **Sortable data table** — full historical OHLCV + delivery data
+- 🧮 **Key metrics cards** — period change, high/low, avg volume, avg delivery %
+- 🚨 **High-delivery signal** — configurable multiplier to flag unusual delivery spikes
+- 🗂️ **Sidebar navigation** — quick jump between sections
+- ⚡ **No external proxy needed** — NSE CORS & cookie handling done inside Next.js API routes
 
-## Setup
-
-```bash
-cd nse-dashboard
-npm install
-npm run dev
-```
-
-This starts:
-- **Proxy server** on `http://localhost:3001` (handles NSE API cookies/CORS)
-- **React app** on `http://localhost:5173`
-
-Open **http://localhost:5173** in your browser.
-
-## Usage
-
-1. Enter a stock symbol (e.g. `DEEPAKNTR`)
-2. Set date range in `DD-MM-YYYY` format
-3. Click **Fetch Data**
-
-Default loads DEEPAKNTR data from 02-Apr-2026 to 02-Jul-2026.
+---
 
 ## Tech Stack
 
-- React 18 + Vite
-- Recharts
-- Express proxy for NSE API
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 15 (App Router) |
+| Language | TypeScript 5 |
+| UI | React 18 |
+| Charts | Recharts 2 |
+| HTTP | Axios + native `fetch` |
+| Styling | Vanilla CSS (globals.css) |
+| Deployment | Vercel-ready |
 
-## Note
+---
 
-NSE India APIs require server-side requests with session cookies. The included Express proxy handles this automatically.
+## Project Structure
+
+```
+stock-screener/
+├── app/
+│   ├── api/
+│   │   ├── historical/     # NSE historical price data endpoint
+│   │   ├── search/         # NSE symbol autocomplete endpoint
+│   │   └── health/         # Health check endpoint
+│   ├── layout.tsx          # Root layout
+│   ├── page.tsx            # Main dashboard page
+│   └── globals.css         # Global styles
+├── components/
+│   ├── layout/
+│   │   ├── TopNav.tsx      # Top navigation bar
+│   │   ├── Sidebar.tsx     # Collapsible sidebar
+│   │   └── InfoPanel.tsx   # Info panel
+│   ├── SecurityFilterPanel.tsx  # Symbol + date range search
+│   ├── StatsCards.tsx      # Key metrics summary cards
+│   ├── DataTable.tsx       # Sortable historical data table
+│   ├── PriceChart.tsx      # Close price + VWAP line chart
+│   ├── VolumeChart.tsx     # Volume bar chart
+│   ├── DeliveryChart.tsx   # Delivery qty & % chart
+│   ├── StockSearchSelect.tsx    # Autocomplete symbol input
+│   ├── DateFilterBar.tsx   # Date range picker
+│   └── icons.tsx           # SVG icon components
+├── hooks/
+│   └── useStockData.ts     # Data fetching & state hook
+├── lib/
+│   └── nseProxy.ts         # NSE session init & cookie management
+├── types/
+│   └── index.ts            # Shared TypeScript types
+├── utils/
+│   ├── dateRanges.ts       # Date preset helpers
+│   ├── equitySearch.ts     # Symbol search utilities
+│   └── formatters.ts       # Number & date formatters
+├── next.config.ts
+├── tsconfig.json
+└── package.json
+```
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- npm or yarn
+
+### Installation
+
+```bash
+git clone https://github.com/mdstockscreener-ux/stock-screener.git
+cd stock-screener
+npm install
+```
+
+### Run Development Server
+
+```bash
+npm run dev
+```
+
+Open **http://localhost:3000** in your browser.
+
+> No separate proxy server needed. All NSE API calls are handled by Next.js API routes at `/api/historical`, `/api/search`, and `/api/health`.
+
+---
+
+## Available Scripts
+
+| Script | Description |
+|---|---|
+| `npm run dev` | Start development server on port 3000 |
+| `npm run build` | Build production bundle |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
+
+---
+
+## API Routes
+
+| Route | Method | Description |
+|---|---|---|
+| `/api/historical` | `GET` | Fetch OHLCV + delivery data for a symbol and date range |
+| `/api/search` | `GET` | Autocomplete NSE symbol search |
+| `/api/health` | `GET` | Health check |
+
+---
+
+## Usage
+
+1. Type a stock symbol in the search box (e.g. `RELIANCE`, `DEEPAKNTR`, `INFY`)
+2. Select a quick date preset or enter a custom date range in `DD-MM-YYYY` format
+3. Click **Fetch Data**
+4. Use the sidebar to jump between **Key Metrics**, **Charts**, and **Historical Data** sections
+
+Default loads **DEEPAKNTR** data for the last **3 months** on startup.
+
+---
+
+## How NSE Data Works
+
+NSE India requires browser-like session cookies for API access. This app handles it transparently:
+
+1. On each API request, the server hits `nseindia.com` to obtain a valid session cookie
+2. That cookie is forwarded to the actual NSE data API
+3. A **60-second in-memory cookie cache** prevents redundant session inits on warm serverless instances
+4. A **single automatic retry** handles `403` responses with a fresh session
+
+No manual cookie setup or separate proxy process is required.
+
+---
+
+## Deployment
+
+This project is **Vercel-ready** (`.vercel` config included). To deploy:
+
+```bash
+npx vercel
+```
+
+Or connect the GitHub repo directly at [vercel.com](https://vercel.com).
+
+---
+
+## License
+
+MIT
