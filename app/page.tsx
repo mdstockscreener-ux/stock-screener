@@ -7,6 +7,7 @@ import SecurityFilterPanel from '@/components/SecurityFilterPanel';
 import StatsCards from '@/components/StatsCards';
 import DataTable from '@/components/DataTable';
 import { useStockData } from '@/hooks/useStockData';
+import { useSidebar } from '@/hooks/useSidebar';
 import { getDateRange } from '@/utils/dateRanges';
 import type { SearchParams } from '@/types';
 
@@ -16,7 +17,7 @@ const defaultRange = getDateRange('3M')!;
 export default function Home() {
   const { data, loading, error, meta, fetchData } = useStockData();
   const contentRef = useRef<HTMLElement>(null);
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+  const { open: sidebarOpen, toggle: toggleSidebar, close: closeSidebar } = useSidebar();
   const [deliveryMultiplier, setDeliveryMultiplier] = useState<number>(3);
 
   const doFetch = useCallback(
@@ -40,11 +41,7 @@ export default function Home() {
 
   const handleNavigate = () => {
     contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-    setSidebarOpen(false);
-  };
-
-  const toggleSidebar = () => {
-    setSidebarOpen((open) => !open);
+    closeSidebar();
   };
 
   return (
@@ -52,7 +49,7 @@ export default function Home() {
       <TopNav onMenuToggle={toggleSidebar} sidebarOpen={sidebarOpen} />
 
       <div className="app-body">
-        <Sidebar open={sidebarOpen} onNavigate={handleNavigate} />
+        <Sidebar open={sidebarOpen} onNavigate={handleNavigate} onClose={closeSidebar} />
 
         <main className="content-area" ref={contentRef}>
           <SecurityFilterPanel onSearch={handleSearch} loading={loading} meta={meta} />

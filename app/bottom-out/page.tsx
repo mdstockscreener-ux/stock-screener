@@ -9,12 +9,13 @@ import DataAsOfBadge from '@/components/screener/DataAsOfBadge';
 import SaveScreenPanel from '@/components/screener/SaveScreenPanel';
 import { useScreenSummary } from '@/hooks/useScreenSummary';
 import { useSavedScreens } from '@/hooks/useSavedScreens';
+import { useSidebar } from '@/hooks/useSidebar';
 import { filterRows, isStale, sortRows } from '@/utils/bottomOut';
 import { DEFAULT_PARAMS } from '@/types/screener';
 import type { ScannerParams, SortDir, SortKey } from '@/types/screener';
 
 export default function BottomOutScanner(): JSX.Element {
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+  const { open: sidebarOpen, toggle: toggleSidebar, close: closeSidebar } = useSidebar();
   const [params, setParams] = useState<ScannerParams>(DEFAULT_PARAMS);
   const [sortKey, setSortKey] = useState<SortKey>('pct_from_low');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -47,10 +48,10 @@ export default function BottomOutScanner(): JSX.Element {
 
   return (
     <div className="app">
-      <TopNav onMenuToggle={() => setSidebarOpen((open) => !open)} sidebarOpen={sidebarOpen} />
+      <TopNav onMenuToggle={toggleSidebar} sidebarOpen={sidebarOpen} />
 
       <div className="app-body">
-        <Sidebar open={sidebarOpen} />
+        <Sidebar open={sidebarOpen} onNavigate={closeSidebar} onClose={closeSidebar} />
 
         <main className="content-area">
           <section className="bos-header">

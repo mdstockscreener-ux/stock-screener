@@ -40,13 +40,16 @@ body {
   color: var(--text);
   line-height: 1.5;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
 }
 
 .app {
   display: flex;
   flex-direction: column;
+  /* dvh tracks the collapsing mobile URL bar; vh is the older-browser fallback. */
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -227,6 +230,11 @@ body {
   border-right: none;
   opacity: 0;
   pointer-events: none;
+}
+
+/* Only ever visible in mobile drawer mode; see the 900px media query. */
+.sidebar-backdrop {
+  display: none;
 }
 
 .sidebar-icon-strip {
@@ -1187,8 +1195,47 @@ tbody tr:last-child td {
 
 /* ── Responsive ── */
 @media (max-width: 900px) {
+  /* The sidebar leaves the flex flow and becomes an overlay drawer, so it
+     stops stealing width from content. It sits above the top nav rather than
+     below it, because the nav's height is variable once it wraps. */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    height: 100dvh;
+    width: min(280px, 82vw);
+    z-index: 200;
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+    opacity: 1;
+    transform: translateX(0);
+    transition: transform 0.25s ease;
+  }
+
+  .sidebar.collapsed {
+    /* Slide out instead of collapsing to zero width — a width transition on a
+       fixed element reflows its contents mid-animation. */
+    width: min(280px, 82vw);
+    opacity: 1;
+    transform: translateX(-100%);
+    border-right: 1px solid var(--border);
+    pointer-events: none;
+  }
+
+  /* The nav links live in this panel. Hiding it here previously left mobile
+     users with no way to move between pages at all. */
   .sidebar-panel {
-    display: none;
+    display: block;
+    flex: 1;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 150;
+    background: rgba(0, 0, 0, 0.4);
   }
 
   .top-nav-search {
@@ -1631,5 +1678,95 @@ tbody tr:last-child td {
   .bos-header,
   .bos-panel-head {
     flex-direction: column;
+  }
+}
+
+/* ============================================================
+   Mobile refinements (shared shell + scanner)
+   ============================================================ */
+
+@media (max-width: 900px) {
+  /* Pin the identifying column so a sideways-scrolled row stays readable.
+     Applies to every .historical-table: date on the dashboard, symbol on the
+     scanner. Backgrounds must be opaque or the scrolled cells bleed through. */
+  table.historical-table thead th:first-child,
+  table.historical-table tbody td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--surface);
+    box-shadow: 1px 0 0 var(--border-light);
+  }
+
+  table.historical-table thead th:first-child {
+    /* Above the sticky body cells at the header/column intersection. */
+    z-index: 3;
+    background: var(--surface-2);
+  }
+
+  table.historical-table tbody tr:nth-child(even) td:first-child {
+    background: #f8f9fa;
+  }
+
+  table.historical-table tbody tr:hover td:first-child {
+    background: var(--accent-light);
+  }
+}
+
+@media (max-width: 768px) {
+  .content-area {
+    padding: 0.85rem 0.75rem;
+  }
+
+  .security-filter-panel,
+  .bos-panel {
+    padding: 1rem 0.9rem;
+  }
+}
+
+@media (max-width: 640px) {
+  /* auto-fit still forces a 260px track when the container is narrower,
+     which overflows on small phones. */
+  .bos-control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bos-title {
+    font-size: 1.1rem;
+  }
+
+  .bos-header,
+  .bos-panel-head {
+    gap: 0.75rem;
+  }
+
+  .bos-panel-head-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  /* Full-width tap target rather than a button squeezed beside the input. */
+  .bos-save-row .bos-text-input,
+  .bos-save-row .bos-btn-primary {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  table.historical-table {
+    font-size: 0.82rem;
+  }
+
+  table.historical-table thead th,
+  table.historical-table tbody td {
+    padding: 0.55rem 0.6rem;
+  }
+
+  .bos-badge-row {
+    gap: 0.4rem;
+  }
+
+  .bos-badge,
+  .bos-badge-note {
+    font-size: 0.72rem;
   }
 }
