@@ -1,4 +1,11 @@
 node_modules/
 dist/
+
+# Next.js build output
+.next/
+tsconfig.tsbuildinfo
+
 .env
+.env.local
+.env*.local
 .vercel
