@@ -13,6 +13,7 @@ A full-stack **Next.js 15** dashboard for visualizing NSE India historical stock
 - 🧮 **Key metrics cards** — period change, high/low, avg volume, avg delivery %
 - 🚨 **High-delivery signal** — configurable multiplier to flag unusual delivery spikes
 - 🗂️ **Sidebar navigation** — quick jump between sections
+- 🧪 **Strategy backtest** — Advanced Darvas Box on a single stock, every parameter editable
 - ⚡ **No external proxy needed** — NSE CORS & cookie handling done inside Next.js API routes
 
 ---
@@ -39,8 +40,10 @@ stock-screener/
 │   ├── api/
 │   │   ├── historical/     # NSE historical price data endpoint
 │   │   ├── search/         # NSE symbol autocomplete endpoint
-│   │   └── health/         # Health check endpoint
+│   │   ├── health/         # Health check endpoint
+│   │   └── backtest/       # Runs the Darvas Box engine server-side
 │   ├── bottom-out/         # Bottom-Out Scanner page (Supabase-backed)
+│   ├── backtest/           # Strategy Backtest page
 │   ├── layout.tsx          # Root layout
 │   ├── page.tsx            # Main dashboard page
 │   └── globals.css         # Global styles
@@ -61,12 +64,20 @@ stock-screener/
 ├── hooks/
 │   └── useStockData.ts     # Data fetching & state hook
 ├── lib/
-│   └── nseProxy.ts         # NSE session init & cookie management
+│   ├── nseProxy.ts         # NSE session init & cookie management
+│   ├── supabaseClient.ts   # Shared Supabase client
+│   └── backtest/
+│       ├── engine.ts       # Pure strategy engine — no I/O, no constants
+│       ├── engine.test.ts  # Unit tests (npm test)
+│       └── data.ts         # Bar resolution: store first, Yahoo fallback
 ├── types/
-│   └── index.ts            # Shared TypeScript types
+│   ├── index.ts            # Shared TypeScript types
+│   ├── screener.ts         # Bottom-Out Scanner types
+│   └── backtest.ts         # Backtest types
 ├── utils/
 │   ├── dateRanges.ts       # Date preset helpers
 │   ├── equitySearch.ts     # Symbol search utilities
+│   ├── backtest.ts         # Backtest presentation helpers
 │   └── formatters.ts       # Number & date formatters
 ├── next.config.ts
 ├── tsconfig.json
@@ -110,6 +121,7 @@ Open **http://localhost:3000** in your browser.
 | `npm run build` | Build production bundle |
 | `npm run start` | Start production server |
 | `npm run lint` | Run ESLint |
+| `npm test` | Run the backtest engine unit tests |
 
 ---
 
@@ -120,6 +132,7 @@ Open **http://localhost:3000** in your browser.
 | `/api/historical` | `GET` | Fetch OHLCV + delivery data for a symbol and date range |
 | `/api/search` | `GET` | Autocomplete NSE symbol search |
 | `/api/health` | `GET` | Health check |
+| `/api/backtest` | `POST` | Resolve bars and run the Darvas Box engine for one symbol |
 
 ---
 
@@ -224,6 +237,89 @@ backtest section, which must select as of a past date.
 The "data as of" badge shows the latest `ingestion_runs.finished_at`. Any symbol
 whose `last_bar_date` predates the universe's latest bar is flagged **stale**.
 The `close` column is the last *stored* close, not a live quote.
+
+---
+
+## Strategy Backtest — Advanced Darvas Box
+
+`/backtest` runs the strategy over a **past** window on **one** stock with its own
+sandboxed capital, and reports the whole result set rather than just a return
+number. It touches nothing the scanner owns: no shared tables, no shared code.
+
+### The rules
+
+| Rule | What it does |
+|---|---|
+| 1 — Tranches | Starting capital is cut into N equal slices, deployed one breakout at a time |
+| 2 — Trigger | Entry when the bar's high takes out the **prior completed week's** high |
+| 3 — Ignorable range | A tranche filling within X% of the last entry is not worth taking |
+| Target | The whole position exits at a fixed % above the **average** entry |
+| Stop | The whole position exits at a fixed % below the **average** entry |
+| Repeat | After any exit the tranche budget resets and the hunt starts again |
+
+### Every number is a form field
+
+Capital, tranche count, target %, stop %, ignorable-range % and the date range
+are all editable, and `lib/backtest/engine.ts` contains no literal for any of
+them — a unit test greps the engine source and fails if one appears. The
+**stop-loss has no default at all**: it is the value being searched, so the form
+leaves it blank and refuses to run until you pick one.
+
+The stop is measured below the *average* entry, so each added tranche drags it up
+behind the position. Below the individual entry, or trailing behind the high, are
+different strategies — that definition is a knob worth revisiting.
+
+### Pessimistic fills
+
+Backtests flatter themselves at the fill. This one does not:
+
+- A **gap-up** through the trigger fills at the open, not back down at the trigger.
+- A **gap-down** through the stop fills at the open, *below* the stop.
+- A gap *through* the target still books only the target.
+- When one bar's range spans both the stop and the target, the **stop** is assumed
+  to have filled first — OHLC cannot say which came first, so it takes the worse.
+
+Whole shares only; a tranche that cannot buy one share is not deployed. There is
+no brokerage, slippage or impact cost — results are an argument about the rules,
+not a record of what a broker would have filled.
+
+### No look-ahead
+
+At bar *i* the engine sees `bars[0..i]` and nothing else. The trigger comes from
+the last **completed** week, never the in-progress one, and fills come from the
+current bar's own OHLC. This is enforced mechanically: `engine.test.ts` runs the
+engine on prefixes of a series and asserts the events and equity curve match the
+full run exactly. If a future bar ever leaked into a decision, truncating the
+series would change the earlier output.
+
+### Where the bars come from
+
+1. **Store** — `daily_bars_adjusted`, when the symbol is in the universe *and* the
+   stored history actually covers the requested range.
+2. **Fetched** — Yahoo via `yahoo-finance2`, on demand, for everything else.
+
+Both are adjusted the same way (raw OHLC scaled by `adj_close / close`), which is
+what makes them comparable. An NSE endpoint is deliberately *not* an option here:
+its unadjusted prices would manufacture a gap at every split and bonus, and the
+engine would trade them.
+
+The fetch runs server-side because Yahoo is not CORS-open. Fetched symbols are
+never written back into `symbols` / `daily_bars` — the universe stays curated.
+Caching, if it is ever worth adding, belongs in its own namespaced table.
+
+The source badge on every run reports which path was used, the data's as-of date,
+and warns when the symbol is outside the scanner universe — such a name has passed
+no liquidity or size filter, so fills on a thin stock are optimistic.
+
+### What it reports
+
+Trade log (every entry, exit and skipped breakout, with tranche number and exit
+reason), equity curve (realized, plus mark-to-market of the open position), and
+metrics: total and realized return, expectancy in R and in rupees, win rate,
+average win vs average loss, profit factor, max drawdown, trade count and time in
+market. A position still open when the range ends is marked to the last close and
+reported separately — it is not a result until it closes, so it stays out of the
+win rate and expectancy.
 
 ---
 
