@@ -40,6 +40,7 @@ stock-screener/
 │   │   ├── historical/     # NSE historical price data endpoint
 │   │   ├── search/         # NSE symbol autocomplete endpoint
 │   │   └── health/         # Health check endpoint
+│   ├── bottom-out/         # Bottom-Out Scanner page (Supabase-backed)
 │   ├── layout.tsx          # Root layout
 │   ├── page.tsx            # Main dashboard page
 │   └── globals.css         # Global styles
@@ -143,6 +144,86 @@ NSE India requires browser-like session cookies for API access. This app handles
 4. A **single automatic retry** handles `403` responses with a fresh session
 
 No manual cookie setup or separate proxy process is required.
+
+---
+
+## Bottom-Out Scanner
+
+A second, self-contained section at **`/bottom-out`**. It finds Nifty 100 stocks
+sitting near their 52-week low but no longer making new lows, and freezes the
+resulting shortlist as a named snapshot for a later backtest.
+
+It reads the Supabase tables produced by the sibling
+[`stock-screener-data-collector`](../stock-screener-data-collector) service
+(`symbols`, `daily_bars`, `daily_bars_adjusted`, `ingestion_runs`) — it does not
+use the NSE API routes above.
+
+### Setup
+
+**1. Run the migration.** Open the Supabase SQL editor and execute
+[`sql/bottom_out_scanner.sql`](sql/bottom_out_scanner.sql). It is idempotent and
+purely additive: it creates the `screen_52w_summary` view, the `screens` and
+`screen_results` snapshot tables, and the RLS policies the browser client needs.
+It requires the data service's schema to already exist. Postgres 15+ (the view
+uses `security_invoker`).
+
+**2. Configure credentials.**
+
+```bash
+cp .env.example .env.local
+```
+
+Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` from
+Supabase → Project Settings → API. Without them the page renders a setup hint
+instead of data.
+
+### How it works
+
+The work is split at the aggregation seam:
+
+- **Postgres aggregates.** `screen_52w_summary` reduces ~60k bars to one summary
+  row per symbol — the 52-week low/high *and their dates*, over the trailing 365
+  days ending at the latest stored bar. It reads `daily_bars_adjusted`, so a
+  split or bonus cannot manufacture a fake new low.
+- **The browser tunes.** All ~100 rows load in a single query. The band and guard
+  thresholds are applied client-side, so dragging a slider re-filters instantly
+  with no further network calls.
+
+### Filters
+
+| Control | Default | Rule |
+|---|---|---|
+| `X` — max % above 52w low | 25% | `close <= low_52w × (1 + X)` |
+| `Y` — min % above 52w low | 5% | `close >= low_52w × (1 + Y)` |
+| Aged-low guard, `N` days | on, 20 | `days_since_low >= N` |
+| % below 52w high | off, 30% | `pct_from_high <= -threshold` |
+
+The aged-low guard is what separates "bottomed out" from "still falling". When
+the same 52-week low is touched more than once, the view reports the **most
+recent** touch, so a stock that re-tested its low last week cannot pass a 20-day
+guard.
+
+### Why snapshots matter
+
+A live screen returns whatever the latest refresh produces and changes underneath
+you. **Save shortlist** writes a `screens` row (name, parameters, `data_as_of`)
+plus the passing symbols and their metrics into `screen_results`. The backtest
+section then references a fixed basket — "screen #7" — rather than "whatever the
+query returns today".
+
+Snapshots are insert-only by policy; delete or edit them in the SQL editor.
+
+### No look-ahead concern here
+
+Selection is *as of today, test forward later*, so using current 52-week values is
+correct — there is no future data to leak. The look-ahead rule applies to the
+backtest section, which must select as of a past date.
+
+### Data freshness
+
+The "data as of" badge shows the latest `ingestion_runs.finished_at`. Any symbol
+whose `last_bar_date` predates the universe's latest bar is flagged **stale**.
+The `close` column is the last *stored* close, not a live quote.
 
 ---
 

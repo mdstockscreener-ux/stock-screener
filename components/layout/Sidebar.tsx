@@ -1,12 +1,23 @@
 'use client';
 
-import { IconAnalytics } from '@/components/icons';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { IconAnalytics, IconTrendUp } from '@/components/icons';
 
-const NAV_ITEM = {
-  id: 'home',
-  label: 'Security - wise Price Volume Data',
-  icon: IconAnalytics,
-};
+const NAV_ITEMS = [
+  {
+    id: 'home',
+    href: '/',
+    label: 'Security - wise Price Volume Data',
+    icon: IconAnalytics,
+  },
+  {
+    id: 'bottom-out',
+    href: '/bottom-out',
+    label: 'Bottom-Out Scanner',
+    icon: IconTrendUp,
+  },
+];
 
 interface SidebarProps {
   open: boolean;
@@ -14,6 +25,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ open, onNavigate }: SidebarProps): JSX.Element {
+  const pathname = usePathname();
+
   return (
     <aside className={`sidebar ${open ? '' : 'collapsed'}`}>
       <div className="sidebar-icon-strip">
@@ -30,16 +43,18 @@ export default function Sidebar({ open, onNavigate }: SidebarProps): JSX.Element
       <nav className="sidebar-panel">
         <p className="sidebar-panel-title">Analytics</p>
         <ul className="sidebar-nav-list">
-          <li>
-            <button
-              type="button"
-              className="sidebar-nav-item active"
-              onClick={() => onNavigate?.('home')}
-            >
-              <NAV_ITEM.icon />
-              <span>{NAV_ITEM.label}</span>
-            </button>
-          </li>
+          {NAV_ITEMS.map((item) => (
+            <li key={item.id}>
+              <Link
+                href={item.href}
+                className={`sidebar-nav-item ${pathname === item.href ? 'active' : ''}`}
+                onClick={() => onNavigate?.(item.id)}
+              >
+                <item.icon />
+                <span>{item.label}</span>
+              </Link>
+            </li>
+          ))}
         </ul>
       </nav>
     </aside>
