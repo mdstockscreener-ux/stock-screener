@@ -13,6 +13,7 @@ A full-stack **Next.js 15** dashboard for visualizing NSE India historical stock
 - 🧮 **Key metrics cards** — period change, high/low, avg volume, avg delivery %
 - 🚨 **High-delivery signal** — configurable multiplier to flag unusual delivery spikes
 - 🗂️ **Sidebar navigation** — quick jump between sections
+- 🗓️ **Upcoming results** — NSE board-meeting calendar, by date or as a sortable table
 - 🧪 **Strategy backtest** — Advanced Darvas Box on a single stock, every parameter editable
 - ⚡ **No external proxy needed** — NSE CORS & cookie handling done inside Next.js API routes
 
@@ -44,6 +45,7 @@ stock-screener/
 │   │   └── backtest/       # Runs the Darvas Box engine server-side
 │   ├── bottom-out/         # Bottom-Out Scanner page (Supabase-backed)
 │   ├── backtest/           # Strategy Backtest page
+│   ├── results-calendar/   # Upcoming Results page
 │   ├── layout.tsx          # Root layout
 │   ├── page.tsx            # Main dashboard page
 │   └── globals.css         # Global styles
@@ -121,7 +123,7 @@ Open **http://localhost:3000** in your browser.
 | `npm run build` | Build production bundle |
 | `npm run start` | Start production server |
 | `npm run lint` | Run ESLint |
-| `npm test` | Run the backtest engine unit tests |
+| `npm test` | Run the backtest engine + results calendar unit tests |
 
 ---
 
@@ -320,6 +322,75 @@ average win vs average loss, profit factor, max drawdown, trade count and time i
 market. A position still open when the range ends is marked to the last close and
 reported separately — it is not a result until it closes, so it stays out of the
 win rate and expectancy.
+
+---
+
+## Upcoming Results
+
+`/results-calendar` lists NSE board meetings called to consider financial
+results. The rows are written by the separate **event-calendar-data-collector**
+browser extension into the `results_calendar` table; this app only ever reads
+them.
+
+### Setup
+
+None. The collector shares this project's Supabase instance and its
+`sql/results_calendar.sql` already grants `SELECT` to `anon`, so the existing
+`NEXT_PUBLIC_SUPABASE_*` variables are enough. There is no SQL to run here and
+no second client.
+
+Refreshing the calendar means **running the collector extension** — it is a
+manual pull, not a cron, so an empty or old page is a normal state with its own
+message rather than an error.
+
+### Two views of the same rows
+
+- **By date** (default) — a block per meeting day with the companies under it,
+  labelled *Today* / *Tomorrow* / *in 5 days*. Days with nothing scheduled are
+  absent rather than blank.
+- **Table** — one sortable row per meeting, the same idiom as the scanner.
+
+The choice is remembered in `localStorage`.
+
+### Filters
+
+| Control | Does |
+|---|---|
+| Horizon | Next 7 / 30 / 90 days, all upcoming, or reach back over the last 30 |
+| Search | Substring match on symbol *and* company name, case-insensitive |
+| Show rescheduled | Reveals superseded rows, hidden by default |
+
+The whole window loads in one query and every control filters it in memory, so
+changing one never re-queries.
+
+### Rescheduled vs cancelled
+
+The collector's unique key is `(symbol, board_meeting_date, purpose)`, so moving
+a meeting **inserts a new row and abandons the old one**. Nothing deletes or
+tombstones the original. The only evidence left is `last_seen_at`: every live
+row is touched on each pull, and an abandoned one stops moving.
+
+That gives two distinguishable cases, treated differently on purpose:
+
+- **Rescheduled** — the symbol also has a row that *was* in the latest pull. The
+  old date is marked superseded and hidden by default.
+- **Cancelled** — nothing replaced it. The row is tagged *not in latest pull*
+  but stays visible, because silently dropping a meeting the user is still
+  expecting would be worse than showing a stale one.
+
+Timestamps within a minute of each other count as the same pull, so a collector
+run that batches its upserts cannot stale its own earlier rows.
+
+### Data freshness, honestly
+
+The badge reads "data last arrived", not "collector last ran", and the
+difference is real: there is no run-tracking table, so the timestamp is inferred
+from the newest `last_seen_at` in the data. It marks the last *successful* pull.
+A run that failed leaves no trace at all and is indistinguishable from no run.
+
+Dates are compared against the **local** calendar date, not UTC — a meeting on
+the 29th is the 29th in Mumbai, and a UTC reading would drop it a day early for
+every IST user before 05:30.
 
 ---
 

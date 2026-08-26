@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { IconAnalytics, IconChart, IconTrendUp } from '@/components/icons';
+import { IconAnalytics, IconCalendar, IconChart, IconTrendUp } from '@/components/icons';
 
 const NAV_ITEMS = [
   {
@@ -22,6 +22,12 @@ const NAV_ITEMS = [
     href: '/backtest',
     label: 'Strategy Backtest',
     icon: IconChart,
+  },
+  {
+    id: 'results-calendar',
+    href: '/results-calendar',
+    label: 'Upcoming Results',
+    icon: IconCalendar,
   },
 ];
 
