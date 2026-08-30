@@ -2233,3 +2233,36 @@ tbody tr:last-child td {
     max-width: 32ch;
   }
 }
+
+/* Weekly GTT order outcomes — the order book's decision column. */
+.bt-tag-order-placed {
+  background: var(--accent-light);
+  border-color: rgba(29, 97, 193, 0.25);
+  color: var(--accent);
+}
+
+.bt-tag-order-repriced {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.bt-tag-order-cancelled-ignorable,
+.bt-tag-order-not-placed-no-tranches {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+/* Order number — the join between the GTT order book and the fill log. */
+.bt-order-id {
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.bt-tag-order-cancelled-on-exit {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}

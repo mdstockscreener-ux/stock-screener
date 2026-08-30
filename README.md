@@ -250,14 +250,45 @@ number. It touches nothing the scanner owns: no shared tables, no shared code.
 
 ### The rules
 
+The entry side models a **real GTT order**, not a standing condition. That
+distinction is the whole strategy:
+
 | Rule | What it does |
 |---|---|
-| 1 — Tranches | Starting capital is cut into N equal slices, deployed one breakout at a time |
-| 2 — Trigger | Entry when the bar's high takes out the **prior completed week's** high |
-| 3 — Ignorable range | A tranche filling within X% of the last entry is not worth taking |
-| Target | The whole position exits at a fixed % above the **average** entry |
-| Stop | The whole position exits at a fixed % below the **average** entry |
-| Repeat | After any exit the tranche budget resets and the hunt starts again |
+| 1 — Tranches | Starting capital is cut into N equal slices, one per filled order |
+| 2 — The weekend order | Each weekend one GTT is placed at the **completed week's** high |
+| 3 — One fill | The order fills **once**; nothing rests again until the next weekend |
+| 4 — Re-price | An order that never filled is moved to the new weekly high |
+| 5 — Ignorable range | If the new weekly high is within X% of the last buy, **no order is placed at all** that week |
+| Target | The whole position exits at a fixed % above the **average** buy price |
+| Stop | The whole position exits at a fixed % below the **average** buy price |
+| Exit ends the cycle | An exit **pulls the resting buy order**, so a bar that closes a position never also opens one |
+| Repeat | After any exit the tranche budget resets and a fresh order goes up at the next weekend |
+
+### Why "one fill per week" is the crux
+
+Treating the trigger as a condition re-tested every day lets a single week's
+breakout buy a tranche on Monday, Tuesday, Wednesday and Thursday — five
+tranches gone in one week off one level. A GTT cannot do that. It is one order:
+it fills once and leaves the market, and the next one goes up at the weekend.
+
+Two consequences fall out of the model:
+
+- **The ignorable range is a placement decision**, judged at the weekend on the
+  new *weekly high* against the last purchase price — not on a fill price on the
+  day. When it withholds the order, nothing can be bought all week, however far
+  price runs. That is the point.
+- **Reaching the target sells, and only sells.** If the buy order is still
+  resting when the position closes, it is cancelled rather than filled — even
+  on a bar that traded through it. The cycle restarts at the next weekend. The
+  same applies to a stop exit.
+- **Orders carry a number.** Re-pricing keeps it, because modifying a GTT does
+  not replace the order, so one number spans a whole ratchet chain and the fill
+  log maps straight back to the order book.
+- **An unfilled order can only ratchet down.** If a week fails to fill its order,
+  that week must have made a lower high than the one the order was priced at —
+  and that lower high prices the next order. It never moves up without filling
+  first. There is a test pinning this.
 
 ### Every number is a form field
 
@@ -275,7 +306,7 @@ different strategies — that definition is a knob worth revisiting.
 
 Backtests flatter themselves at the fill. This one does not:
 
-- A **gap-up** through the trigger fills at the open, not back down at the trigger.
+- A **gap-up** through the resting order fills at the open, not back down at the order price.
 - A **gap-down** through the stop fills at the open, *below* the stop.
 - A gap *through* the target still books only the target.
 - When one bar's range spans both the stop and the target, the **stop** is assumed

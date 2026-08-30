@@ -19,7 +19,14 @@ import { describe, it } from 'node:test';
 
 import { isoWeekStart, priorWeekHighs, runBacktest, validateParams } from '@/lib/backtest/engine';
 import { BacktestParamError } from '@/lib/backtest/engine';
-import type { Bar, BacktestParams, EntryEvent, ExitEvent, SkipEvent } from '@/types/backtest';
+import type {
+  Bar,
+  BacktestParams,
+  EntryEvent,
+  ExitEvent,
+  OrderEvent,
+  SkipEvent,
+} from '@/types/backtest';
 
 // ── Fixture helpers ───────────────────────────────────────────────────────
 
@@ -61,6 +68,8 @@ const exits = (events: readonly { kind: string }[]) =>
   events.filter((e): e is ExitEvent => e.kind === 'exit');
 const skips = (events: readonly { kind: string }[]) =>
   events.filter((e): e is SkipEvent => e.kind === 'skip');
+const orders = (events: readonly { kind: string }[]) =>
+  events.filter((e): e is OrderEvent => e.kind === 'order');
 
 // ── Trigger levels ────────────────────────────────────────────────────────
 
@@ -131,45 +140,332 @@ describe('entry', () => {
   });
 });
 
+// ── The weekly GTT order ──────────────────────────────────────────────────
+
+describe('the resting GTT order', () => {
+  it('fills once a week however long price stays above it', () => {
+    // The defect this replaced: treating the trigger as a condition re-checked
+    // daily let one week's breakout buy a tranche every single day.
+    const bars = [
+      ...flatWeek(WEEK_1, 100),
+      bar('2024-01-08', 101, 101, 101, 101),
+      bar('2024-01-09', 106, 106, 106, 106),
+      bar('2024-01-10', 112, 112, 112, 112),
+      bar('2024-01-11', 118, 118, 118, 118),
+      bar('2024-01-12', 124, 124, 124, 124),
+    ];
+
+    const taken = entries(runBacktest(bars, { ...NO_EXIT, trancheCount: 6 }).events);
+
+    assert.equal(taken.length, 1, 'one order, one fill — not one per bar');
+    assert.equal(taken[0].date, '2024-01-08');
+    assert.equal(taken[0].triggerLevel, 100);
+  });
+
+  it('places nothing in the opening week, having no completed week to price off', () => {
+    const bars = [...flatWeek(WEEK_1, 100)];
+    const { events } = runBacktest(bars, NO_EXIT);
+
+    assert.deepEqual(events, [], 'no order, no fill, nothing to report');
+  });
+
+  it('re-prices an unfilled order to the new weekly high', () => {
+    const bars = [
+      ...flatWeek(WEEK_1, 100), // week 2 rests at 100
+      ...flatWeek(WEEK_2, 99), // never reaches it; week 2 high = 99
+      ...flatWeek(WEEK_3, 98),
+    ];
+
+    const week3 = orders(runBacktest(bars, NO_EXIT).events).find(
+      (o) => o.weekOf === '2024-01-15'
+    );
+
+    assert.ok(week3);
+    assert.equal(week3.outcome, 'repriced');
+    assert.equal(week3.previousTrigger, 100);
+    assert.equal(week3.triggerPrice, 99, 'follows the weekly high down, not just up');
+  });
+
+  it('can only ever ratchet an unfilled order downward', () => {
+    // A structural property worth pinning down. The order rests at last week's
+    // high, so a week that fails to fill it must have made a lower high — and
+    // that lower high is the next order's price. An unfilled order therefore
+    // never moves up; it only walks price down until something fills or the
+    // ignorable range withholds it.
+    const bars = [
+      ...flatWeek(WEEK_1, 100),
+      ...flatWeek(WEEK_2, 95),
+      ...flatWeek(WEEK_3, 90),
+      ...flatWeek(WEEK_4, 85),
+    ];
+
+    const placed = orders(runBacktest(bars, NO_EXIT).events);
+
+    assert.deepEqual(
+      placed.map((o) => [o.weekOf, o.outcome, o.triggerPrice]),
+      [
+        ['2024-01-08', 'placed', 100],
+        ['2024-01-15', 'repriced', 95],
+        ['2024-01-22', 'repriced', 90],
+      ]
+    );
+
+    const prices = placed.map((o) => o.triggerPrice as number);
+    for (let i = 1; i < prices.length; i += 1) {
+      assert.ok(prices[i] < prices[i - 1], 'an unfilled order never re-prices upward');
+    }
+    assert.equal(entries(runBacktest(bars, NO_EXIT).events).length, 0);
+  });
+
+  it('puts a fresh order up the week after one fills', () => {
+    const bars = [
+      ...flatWeek(WEEK_1, 100),
+      bar('2024-01-08', 100, 100, 100, 100), // fills, consuming the order
+      ...flatWeek(WEEK_2.slice(1), 110), // week 2 high = 110
+      ...flatWeek(WEEK_3, 111),
+    ];
+
+    const week3 = orders(runBacktest(bars, NO_EXIT).events).find(
+      (o) => o.weekOf === '2024-01-15'
+    );
+
+    assert.ok(week3);
+    // "Placed", not "re-priced": nothing was resting, because Monday's fill
+    // took the previous order out of the market.
+    assert.equal(week3.outcome, 'placed');
+    assert.equal(week3.previousTrigger, null);
+    assert.equal(week3.triggerPrice, 110);
+  });
+
+  it('decides the week before it trades, so a mid-week exit cannot arm it', () => {
+    const bars = [
+      ...flatWeek(WEEK_1, 100),
+      bar('2024-01-08', 100, 100, 100, 100), // buys the only tranche
+      ...flatWeek(WEEK_2.slice(1), 101),
+      // Week 3 is decided with the tranche still deployed, so no order rests.
+      bar('2024-01-15', 101, 101, 94, 95), // stopped out mid-week
+      ...flatWeek(WEEK_3.slice(1), 120), // a huge run that cannot be bought
+    ];
+
+    const { events } = runBacktest(bars, { ...TIGHT, trancheCount: 1 });
+    const week3 = orders(events).find((o) => o.weekOf === '2024-01-15');
+
+    assert.ok(week3);
+    assert.equal(week3.outcome, 'not-placed-no-tranches');
+    assert.equal(
+      entries(events).filter((e) => e.weekOf === '2024-01-15').length,
+      0,
+      'the budget freed up mid-week, but the weekend decision had already been made'
+    );
+  });
+});
+
+// ── An exit ends the cycle ────────────────────────────────────────────────
+
+describe('exiting cancels the resting order', () => {
+  // The shape that exposed this: the buy order rests BELOW the target, and one
+  // bar trades through both. Selling at the target must not also buy.
+  const bars = [
+    ...flatWeek(WEEK_1, 100),
+    bar('2024-01-08', 100, 100, 100, 100), // order #1 fills at 100, target 106
+    ...flatWeek(WEEK_2.slice(1), 104), // week 2 high = 104, clear of the buy
+    bar('2024-01-15', 103, 107, 102, 106), // order #2 at 104 AND target 106 both inside
+    ...flatWeek(WEEK_3.slice(1), 110), // stays above 104 all week
+    ...flatWeek(WEEK_4, 111),
+  ];
+
+  it('sells at the target without buying on the same bar', () => {
+    const { events } = runBacktest(bars, TIGHT);
+
+    const onExitDay = events.filter((e) => e.date === '2024-01-15');
+    assert.equal(
+      onExitDay.filter((e) => e.kind === 'entry').length,
+      0,
+      'reaching the target means sell only — the cycle restarts next week'
+    );
+    assert.equal(onExitDay.filter((e) => e.kind === 'exit').length, 1);
+
+    const [exit] = exits(events);
+    assert.equal(exit.reason, 'target');
+    assert.equal(exit.price, 106);
+  });
+
+  it('reports the cancellation against the order it pulled', () => {
+    const { events } = runBacktest(bars, TIGHT);
+    const cancelled = orders(events).find((o) => o.outcome === 'cancelled-on-exit');
+
+    assert.ok(cancelled);
+    assert.equal(cancelled.date, '2024-01-15');
+    assert.equal(cancelled.orderId, 2, 'the order placed for week 3');
+    assert.equal(cancelled.previousTrigger, 104);
+    assert.equal(cancelled.triggerPrice, null);
+  });
+
+  it('leaves nothing resting for the remainder of that week', () => {
+    const { events } = runBacktest(bars, TIGHT);
+
+    // Week 3 runs at 110 after the exit, well above the 104 the order sat at.
+    const boughtLater = entries(events).filter(
+      (e) => e.date > '2024-01-15' && e.date <= '2024-01-19'
+    );
+    assert.deepEqual(boughtLater, []);
+  });
+
+  it('starts a fresh order the following weekend', () => {
+    const { events } = runBacktest(bars, TIGHT);
+    const week4 = orders(events).find(
+      (o) => o.weekOf === '2024-01-22' && o.outcome !== 'cancelled-on-exit'
+    );
+
+    assert.ok(week4);
+    assert.equal(week4.outcome, 'placed', 'not re-priced — the old order is gone');
+    assert.equal(week4.orderId, 3, 'a new order, so a new number');
+    assert.equal(week4.triggerPrice, 110);
+  });
+
+  it('pulls the order on a stop exit too', () => {
+    const stopped = [
+      ...flatWeek(WEEK_1, 100),
+      bar('2024-01-08', 100, 100, 100, 100),
+      ...flatWeek(WEEK_2.slice(1), 104),
+      bar('2024-01-15', 103, 106, 94, 96), // stop at 95, and 104 is inside the range
+      ...flatWeek(WEEK_3.slice(1), 105),
+    ];
+
+    const { events } = runBacktest(stopped, TIGHT);
+
+    assert.equal(exits(events)[0].reason, 'stop');
+    assert.equal(
+      entries(events).filter((e) => e.date >= '2024-01-15').length,
+      0,
+      'the cycle restarts after any exit, not just a profitable one'
+    );
+    assert.ok(orders(events).some((o) => o.outcome === 'cancelled-on-exit'));
+  });
+});
+
+// ── Order identity ────────────────────────────────────────────────────────
+
+describe('order numbering', () => {
+  it('keeps one number across every re-price', () => {
+    const bars = [
+      ...flatWeek(WEEK_1, 100),
+      ...flatWeek(WEEK_2, 95),
+      ...flatWeek(WEEK_3, 90),
+      ...flatWeek(WEEK_4, 85),
+    ];
+
+    const ids = orders(runBacktest(bars, NO_EXIT).events).map((o) => o.orderId);
+
+    // Modifying a resting GTT does not replace it, so the chain is one order.
+    assert.deepEqual(ids, [1, 1, 1]);
+  });
+
+  // Each week's high must clear the fill it produced, or the ignorable range
+  // withholds the next order and no new number is issued.
+  const laddered = [
+    ...flatWeek(WEEK_1, 100),
+    bar('2024-01-08', 100, 100, 100, 100), // order #1 fills at 100
+    ...flatWeek(WEEK_2.slice(1), 110), // week 2 high = 110
+    bar('2024-01-15', 111, 111, 111, 111), // order #2 fills at 111
+    ...flatWeek(WEEK_3.slice(1), 125), // week 3 high = 125
+    ...flatWeek(WEEK_4, 126), // order #3 fills at 126
+  ];
+
+  it('takes a new number once the old order has gone', () => {
+    const placed = orders(runBacktest(laddered, NO_EXIT).events).filter(
+      (o) => o.triggerPrice !== null
+    );
+
+    assert.deepEqual(
+      placed.map((o) => o.orderId),
+      [1, 2, 3]
+    );
+  });
+
+  it('lets every fill be traced back to the order that produced it', () => {
+    const { events } = runBacktest(laddered, NO_EXIT);
+    assert.equal(entries(events).length, 3);
+    const placedIds = new Set(
+      orders(events)
+        .filter((o) => o.triggerPrice !== null)
+        .map((o) => o.orderId)
+    );
+
+    for (const fill of entries(events)) {
+      assert.ok(placedIds.has(fill.orderId), `fill on ${fill.date} has no matching order`);
+    }
+  });
+});
+
 // ── Rule 3: the ignorable range ───────────────────────────────────────────
 
 describe('ignorable range', () => {
-  // Tue's breakout fills 0.5% above Monday's entry; Wed's fills 3.0% above it.
+  // Week 2 buys at 100 and closes at a high of 101 — only 1% above the buy, so
+  // no order goes up for week 3. Week 3 then spikes to 110, which must NOT be
+  // bought, because nothing is resting. Week 3's high of 110 is 10% clear of
+  // the buy, so week 4 is armed again.
   const bars = [
     ...flatWeek(WEEK_1, 100),
-    bar('2024-01-08', 100, 100.5, 99, 100),
-    bar('2024-01-09', 100.5, 102, 100, 101),
-    bar('2024-01-10', 103, 104, 102.5, 103.5),
+    bar('2024-01-08', 100, 100, 100, 100), // fills at 100
+    ...flatWeek(WEEK_2.slice(1), 101), // week 2 high = 101
+    bar('2024-01-15', 102, 102, 102, 102),
+    bar('2024-01-16', 110, 110, 110, 110), // the spike that must not be bought
+    ...flatWeek(WEEK_3.slice(2), 105), // week 3 high = 110
+    bar('2024-01-22', 111, 112, 110, 111),
+    ...flatWeek(WEEK_4.slice(1), 111),
   ];
 
-  it('skips a tranche priced inside the band and takes the one outside it', () => {
+  it('withholds the order when the new weekly high sits inside the band', () => {
+    const { events } = runBacktest(bars, NO_EXIT);
+    const week3 = orders(events).find((o) => o.weekOf === '2024-01-15');
+
+    assert.ok(week3);
+    assert.equal(week3.outcome, 'cancelled-ignorable');
+    assert.equal(week3.triggerPrice, null, 'nothing rests that week');
+    assert.equal(week3.weeklyHigh, 101, 'judged on the weekly high, not on a fill price');
+    assert.equal(week3.lastEntryPrice, 100);
+  });
+
+  it('blocks the whole week, not just one bar', () => {
+    // The distinction that matters: with no order resting, a 10% spike on the
+    // Tuesday cannot be bought however far it runs.
     const { events } = runBacktest(bars, NO_EXIT);
 
-    const taken = entries(events);
-    const skipped = skips(events);
+    const boughtInWeek3 = entries(events).filter((e) => e.weekOf === '2024-01-15');
+    assert.deepEqual(boughtInWeek3, []);
+  });
 
-    assert.equal(taken.length, 2);
-    assert.deepEqual(
-      taken.map((e) => e.date),
-      ['2024-01-08', '2024-01-10']
+  it('arms again once the weekly high clears the band', () => {
+    const { events } = runBacktest(bars, NO_EXIT);
+    const week4 = orders(events).find((o) => o.weekOf === '2024-01-22');
+
+    assert.ok(week4);
+    assert.equal(week4.outcome, 'placed');
+    assert.equal(week4.triggerPrice, 110, "week 3's high, now 10% above the buy");
+
+    const fill = entries(events).find((e) => e.weekOf === '2024-01-22');
+    assert.ok(fill);
+    assert.equal(fill.price, 111, 'gapped above the order, so filled at the open');
+  });
+
+  it('is a parameter, not a rule', () => {
+    const wide = runBacktest(bars, { ...NO_EXIT, ignorableRangePct: 15 });
+    assert.equal(
+      entries(wide.events).length,
+      1,
+      'a 15% band swallows week 4 as well, leaving only the opening buy'
     );
 
-    assert.equal(skipped.length, 1);
-    assert.equal(skipped[0].date, '2024-01-09');
-    assert.equal(skipped[0].reason, 'ignorable-range');
-    assert.equal(skipped[0].lastEntryPrice, 100);
-  });
-
-  it('is a parameter, not a rule — widening it skips more, zeroing it skips none', () => {
-    const wide = runBacktest(bars, { ...NO_EXIT, ignorableRangePct: 5 });
-    assert.equal(entries(wide.events).length, 1, 'a 5% band swallows the 3% add too');
-
     const off = runBacktest(bars, { ...NO_EXIT, ignorableRangePct: 0 });
-    assert.equal(entries(off.events).length, 3, 'with no band every breakout is taken');
-    assert.equal(skips(off.events).length, 0);
+    assert.equal(entries(off.events).length, 3, 'with no band every week is armed');
+    assert.equal(
+      orders(off.events).filter((o) => o.outcome === 'cancelled-ignorable').length,
+      0
+    );
   });
 
-  it('never blocks the first tranche of a position', () => {
+  it('never blocks the first order of a position', () => {
     const { events } = runBacktest(bars, { ...NO_EXIT, ignorableRangePct: 90 });
     const taken = entries(events);
 
@@ -181,15 +477,19 @@ describe('ignorable range', () => {
 // ── Tranche budget ────────────────────────────────────────────────────────
 
 describe('tranches', () => {
+  // One buy per week, each week's high clear of the last buy: 100, then 107,
+  // then 113.
   const bars = [
     ...flatWeek(WEEK_1, 100),
-    bar('2024-01-08', 100, 100.5, 99, 100),
-    bar('2024-01-09', 103, 104, 102.5, 103.5),
-    bar('2024-01-10', 107, 108, 106, 107),
-    bar('2024-01-11', 111, 112, 110, 111),
+    bar('2024-01-08', 100, 100, 100, 100), // buys at 100
+    ...flatWeek(WEEK_2.slice(1), 106), // week 2 high = 106
+    bar('2024-01-15', 107, 107, 107, 107), // buys at 107
+    ...flatWeek(WEEK_3.slice(1), 112), // week 3 high = 112
+    bar('2024-01-22', 113, 113, 113, 113), // buys at 113
+    ...flatWeek(WEEK_4.slice(1), 113),
   ];
 
-  it('stops deploying once the budget is exhausted', () => {
+  it('stops arming an order once the budget is exhausted', () => {
     const { events, metrics } = runBacktest(bars, { ...NO_EXIT, trancheCount: 2 });
 
     const taken = entries(events);
@@ -200,10 +500,13 @@ describe('tranches', () => {
     );
     assert.equal(metrics.maxTranchesDeployed, 2);
 
-    // The later breakouts are not skips — there was simply no tranche to spend.
+    // Week 4 is not a skip — no order was placed, because there was nothing
+    // left to buy with.
+    const week4 = orders(events).find((o) => o.weekOf === '2024-01-22');
+    assert.ok(week4);
+    assert.equal(week4.outcome, 'not-placed-no-tranches');
+    assert.equal(week4.triggerPrice, null);
     assert.equal(skips(events).length, 0);
-    assert.equal(events.filter((e) => e.date === '2024-01-10').length, 0);
-    assert.equal(events.filter((e) => e.date === '2024-01-11').length, 0);
   });
 
   it('deploys the extra tranche when the budget allows it', () => {
@@ -211,7 +514,7 @@ describe('tranches', () => {
     const taken = entries(events);
 
     assert.equal(taken.length, 3);
-    assert.equal(taken[2].date, '2024-01-10');
+    assert.equal(taken[2].date, '2024-01-22');
     assert.equal(taken[2].tranche, 3);
   });
 
@@ -292,8 +595,9 @@ describe('exit', () => {
     const bars = [
       ...flatWeek(WEEK_1, 100),
       bar('2024-01-08', 100, 100, 100, 100), // 250 @ 100, target 106, stop 95
-      bar('2024-01-09', 104, 104, 104, 104), // adds 240 @ 104, still inside the band
-      bar('2024-01-10', 104, 104, 96, 98), // through the averaged stop, above the first one
+      ...flatWeek(WEEK_2.slice(1), 104), // week 2 high = 104
+      bar('2024-01-15', 104, 104, 104, 104), // adds 240 @ 104
+      bar('2024-01-16', 104, 104, 96, 98), // through the averaged stop, above the first one
     ];
 
     const { events } = runBacktest(bars, TIGHT);
@@ -359,22 +663,49 @@ describe('reset and repeat', () => {
     assert.equal(metrics.tradeCount, 1, 'the open position is not counted as a result');
   });
 
-  it('can exit and re-enter on the same bar once the budget is restored', () => {
+  it('cannot re-enter on the exit bar, because the order was already consumed', () => {
     const bars = [
       ...flatWeek(WEEK_1, 100),
-      bar('2024-01-08', 100, 100, 100, 100),
-      bar('2024-01-09', 100, 107, 94, 105), // stops out, then breaks 100 again
+      bar('2024-01-08', 100, 100, 100, 100), // the week's one fill
+      bar('2024-01-09', 100, 107, 94, 105), // stops out, and trades back above 100
+      ...flatWeek(WEEK_2.slice(2), 101), // week 2 high = 107
     ];
 
     const { events } = runBacktest(bars, TIGHT);
 
+    // Under a standing-condition reading this bar would buy again. Under a GTT
+    // it cannot: Monday's fill took the only order out of the market, and the
+    // next one is not placed until the weekend.
     assert.deepEqual(
-      events.map((e) => e.kind),
-      ['entry', 'exit', 'entry']
+      entries(events).map((e) => e.date),
+      ['2024-01-08']
     );
-    const reentry = entries(events)[1];
-    assert.equal(reentry.date, '2024-01-09');
-    assert.equal(reentry.tranche, 1);
+    assert.equal(exits(events).length, 1);
+  });
+
+  it('places a fresh order the following week, unblocked by the closed position', () => {
+    const bars = [
+      ...flatWeek(WEEK_1, 100),
+      bar('2024-01-08', 100, 100, 100, 100),
+      bar('2024-01-09', 100, 107, 94, 105), // stopped out at 95
+      ...flatWeek(WEEK_2.slice(2), 101), // week 2 high = 107
+      bar('2024-01-15', 108, 108, 108, 108),
+    ];
+
+    const { events } = runBacktest(bars, TIGHT);
+    const week3 = orders(events).find((o) => o.weekOf === '2024-01-15');
+
+    assert.ok(week3);
+    // The exit cleared the reference price, so the ignorable range has nothing
+    // to measure against and the new order goes up regardless of where the old
+    // position was bought.
+    assert.equal(week3.outcome, 'placed');
+    assert.equal(week3.lastEntryPrice, null);
+    assert.equal(week3.triggerPrice, 107);
+
+    const refill = entries(events)[1];
+    assert.equal(refill.date, '2024-01-15');
+    assert.equal(refill.tranche, 1);
   });
 });
 
@@ -525,13 +856,14 @@ describe('parameters', () => {
 describe('metrics', () => {
   it('reports an honest set over a mixed run', () => {
     const bars = [
-      ...flatWeek(WEEK_1, 100), // week 2 trades against a trigger of 100
-      bar('2024-01-08', 100, 100, 100, 100), // enter 250 @ 100
-      bar('2024-01-09', 99, 99, 94, 95), // stop at 95: -1,250, and no re-entry
-      ...flatWeek(WEEK_2.slice(2), 96),
-      bar('2024-01-15', 100, 101, 99, 100), // enter 250 @ 100 again
+      ...flatWeek(WEEK_1, 100), // week 2's order rests at 100
+      bar('2024-01-08', 100, 100, 100, 100), // buys 250 @ 100
+      bar('2024-01-09', 99, 99, 94, 95), // stop at 95: -1,250
+      ...flatWeek(WEEK_2.slice(2), 96), // week 2 high = 100
+      bar('2024-01-15', 100, 101, 99, 100), // week 3's order at 100 fills @ 100
       bar('2024-01-16', 101, 107, 100, 106), // target at 106: +1,500
-      ...flatWeek(WEEK_3.slice(2), 102), // the same-bar re-entry rides to the end
+      ...flatWeek(WEEK_3.slice(2), 102), // week 3 high = 107
+      ...flatWeek(WEEK_4, 102), // week 4 rests at 107 and never fills
     ];
 
     const { metrics, trades, openPosition } = runBacktest(bars, TIGHT);
@@ -542,7 +874,7 @@ describe('metrics', () => {
     assert.equal(metrics.winRatePct, 50);
     assert.equal(trades[0].pnl, -1250);
     assert.equal(trades[1].pnl, 1500);
-    assert.ok(openPosition, 'the position opened on the exit bar is still running');
+    assert.equal(openPosition, null, 'week 4 never traded through its order');
 
     // Expectancy is the mean P&L per closed trade, and expectancyR its R form.
     const meanPnl = (trades[0].pnl + trades[1].pnl) / 2;

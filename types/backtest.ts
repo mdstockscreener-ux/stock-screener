@@ -55,12 +55,63 @@ export const DEFAULT_FORM_VALUES: Omit<BacktestParams, 'stopLossPct'> = {
 /** Why a position was closed. `open-at-end` is the range running out, not a fill. */
 export type ExitReason = 'target' | 'stop' | 'open-at-end';
 
-/** Why a triggered breakout did not become a tranche. */
-export type SkipReason = 'ignorable-range' | 'tranche-below-one-share';
+/** Why an order that triggered still did not become a tranche. */
+export type SkipReason = 'tranche-below-one-share';
+
+/**
+ * What happened to the resting GTT order at a week boundary — the "Saturday" step.
+ *
+ * Exactly one of these is decided per week, before that week trades.
+ */
+export type OrderOutcome =
+  /** Nothing was resting; an order is now placed at the completed week's high. */
+  | 'placed'
+  /** The previous order went unfilled and was moved to the new weekly high. */
+  | 'repriced'
+  /** The new weekly high sits inside the ignorable range of the last buy. */
+  | 'cancelled-ignorable'
+  /** Every tranche is already deployed, so there is nothing left to buy with. */
+  | 'not-placed-no-tranches'
+  /** The position closed, so the order was pulled and the strategy restarts. */
+  | 'cancelled-on-exit';
+
+/**
+ * One week's decision about the resting order.
+ *
+ * Emitted on the first trading day of the week the order is live for, using
+ * only the completed week behind it.
+ */
+export interface OrderEvent {
+  kind: 'order';
+  /**
+   * Identifies the order across the weeks it survives. Re-pricing keeps the
+   * same id — modifying a GTT does not replace it — so a chain of "re-priced"
+   * rows all carry one number, and the fill that ends it carries it too.
+   * Null when nothing was resting and nothing was placed.
+   */
+  orderId: number | null;
+  /** First trading day of the week this order is live for, or the exit date. */
+  date: string;
+  /** Monday of that week. */
+  weekOf: string;
+  /** The completed prior week's high — the price the order would rest at. */
+  weeklyHigh: number;
+  /** Where the order actually rests. Null when none is placed this week. */
+  triggerPrice: number | null;
+  /** What was resting before this decision, if anything. */
+  previousTrigger: number | null;
+  outcome: OrderOutcome;
+  /** The last purchase price the ignorable range is measured against. */
+  lastEntryPrice: number | null;
+}
 
 export interface EntryEvent {
   kind: 'entry';
   date: string;
+  /** The order this fill consumed — maps the row back to the order book. */
+  orderId: number;
+  /** Monday of the week whose resting order this fill consumed. */
+  weekOf: string;
   /** Actual fill: max(trigger, open) — a gap-up fills at the open. */
   price: number;
   qty: number;
@@ -94,6 +145,8 @@ export interface ExitEvent {
 
 export interface SkipEvent {
   kind: 'skip';
+  /** The order that triggered but could not buy. */
+  orderId: number;
   date: string;
   /** The fill the tranche would have taken. */
   price: number;
@@ -102,7 +155,7 @@ export interface SkipEvent {
   lastEntryPrice: number | null;
 }
 
-export type TradeEvent = EntryEvent | ExitEvent | SkipEvent;
+export type TradeEvent = EntryEvent | ExitEvent | SkipEvent | OrderEvent;
 
 /** One full round trip: every tranche of a position plus the single exit that closed it. */
 export interface RoundTrip {

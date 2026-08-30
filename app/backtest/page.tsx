@@ -135,11 +135,12 @@ export default function BacktestPage(): JSX.Element {
             <div>
               <h1 className="bos-title">Strategy Backtest — Advanced Darvas Box</h1>
               <p className="bos-subtitle">
-                One stock, its own capital, over a past window. Entries come from breaking
-                the prior completed week&rsquo;s high; the position exits whole at a fixed
-                target or a stop below the average entry. Fills are modelled pessimistically
-                — gap-ups cost you the open, gap-downs fill below the stop, and a bar that
-                spans both is read as the stop.
+                One stock, its own capital, over a past window. Each weekend a single GTT
+                order is placed at the completed week&rsquo;s high; it fills once, then
+                nothing rests until the next weekend. The position exits whole at a fixed
+                target or a stop below the average buy price. Fills are modelled
+                pessimistically — gap-ups cost you the open, gap-downs fill below the stop,
+                and a bar that spans both is read as the stop.
               </p>
             </div>
           </section>

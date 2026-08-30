@@ -6,7 +6,7 @@
  * has been through a formatter first.
  */
 
-import type { ExitReason, SkipReason } from '@/types/backtest';
+import type { ExitReason, OrderOutcome, SkipReason } from '@/types/backtest';
 
 /** Rupees with paise. Full precision — these are fill prices, not headline figures. */
 export function formatMoney(value: number): string {
@@ -70,9 +70,59 @@ export function exitReasonLabel(reason: ExitReason): string {
 }
 
 export function skipReasonLabel(reason: SkipReason): string {
-  return reason === 'ignorable-range'
-    ? 'Inside ignorable range'
-    : 'Tranche below one share';
+  // Only one way a triggered order fails to buy: the tranche is too small.
+  return reason === 'tranche-below-one-share' ? 'Tranche below one share' : reason;
+}
+
+/** What the weekend did to the resting GTT. */
+export function orderOutcomeLabel(outcome: OrderOutcome): string {
+  switch (outcome) {
+    case 'placed':
+      return 'Placed';
+    case 'repriced':
+      return 'Re-priced';
+    case 'cancelled-ignorable':
+      return 'Not placed — ignorable range';
+    case 'not-placed-no-tranches':
+      return 'Not placed — no tranches left';
+    case 'cancelled-on-exit':
+      return 'Cancelled — position closed';
+    default:
+      return outcome;
+  }
+}
+
+/** Short explanation of why the order sits where it does, for the order book. */
+export function orderOutcomeDetail(
+  outcome: OrderOutcome,
+  weeklyHigh: number,
+  previousTrigger: number | null,
+  lastEntryPrice: number | null
+): string {
+  if (outcome === 'placed') {
+    return `Resting at last week's high of ${formatMoney(weeklyHigh)}`;
+  }
+  if (outcome === 'repriced') {
+    const direction =
+      previousTrigger === null || previousTrigger === weeklyHigh
+        ? 'moved'
+        : weeklyHigh > previousTrigger
+          ? 'raised'
+          : 'lowered';
+    return `Unfilled, so ${direction} from ${formatMoney(previousTrigger ?? weeklyHigh)} to ${formatMoney(weeklyHigh)}`;
+  }
+  if (outcome === 'cancelled-on-exit') {
+    const at = formatMoney(previousTrigger ?? weeklyHigh);
+    return `Position closed, so the order resting at ${at} was pulled — the cycle restarts next weekend`;
+  }
+  if (outcome === 'cancelled-ignorable') {
+    const gap =
+      lastEntryPrice === null || lastEntryPrice === 0
+        ? ''
+        : ` (${(((weeklyHigh - lastEntryPrice) / lastEntryPrice) * 100).toFixed(2)}% away)`;
+    return `Last week's high of ${formatMoney(weeklyHigh)} is too near the last buy at ${formatMoney(lastEntryPrice ?? 0)}${gap} — nothing rests this week`;
+  }
+  return 'Every tranche is deployed, so there is nothing left to buy with';
 }
 
 function isoDate(date: Date): string {

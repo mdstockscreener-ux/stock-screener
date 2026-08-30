@@ -235,7 +235,7 @@ export default function BacktestForm({
           id="bt-ignorable"
           label="Ignorable range"
           suffix="%"
-          hint="Rule 3 — a breakout filling this close to the last tranche is not worth another one."
+          hint="Rule 3 — checked each weekend. If the new weekly high is this close to your last buy, no order is placed at all that week."
           min="0"
           step="any"
           value={values.ignorableRangePct}
