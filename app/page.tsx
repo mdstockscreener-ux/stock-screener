@@ -95,7 +95,7 @@ export default function Home() {
               </section>
 
               <section className="content-section" id="section-historical">
-                <DataTable data={data} />
+                <DataTable data={data} deliveryMultiplier={deliveryMultiplier} />
               </section>
             </>
           )}

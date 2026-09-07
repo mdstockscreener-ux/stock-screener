@@ -53,9 +53,15 @@ function cellValue(row: StockRecord, col: ColumnDef): string | number {
 
 interface DataTableProps {
   data: StockRecord[];
+  deliveryMultiplier?: number;
 }
 
-export default function DataTable({ data }: DataTableProps): JSX.Element {
+export default function DataTable({ data, deliveryMultiplier = 3 }: DataTableProps): JSX.Element {
+  const avgDeliveryQty = data.length
+    ? data.reduce((s, d) => s + d.deliveryQty, 0) / data.length
+    : 0;
+  const threshold = deliveryMultiplier * avgDeliveryQty;
+
   const reversed = [...data].reverse();
   const symbol = data[0]?.symbol;
 
@@ -87,8 +93,13 @@ export default function DataTable({ data }: DataTableProps): JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {reversed.map((row) => (
-                <tr key={`${row.symbol}-${row.date}`}>
+              {reversed.map((row) => {
+                const isHighDelivery = avgDeliveryQty > 0 && row.deliveryQty > threshold;
+                return (
+                <tr
+                  key={`${row.symbol}-${row.date}`}
+                  className={isHighDelivery ? 'high-delivery-row' : undefined}
+                >
                   {COLUMNS.map((col) => (
                     <td
                       key={col.key as string}
@@ -101,7 +112,8 @@ export default function DataTable({ data }: DataTableProps): JSX.Element {
                     </td>
                   ))}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
