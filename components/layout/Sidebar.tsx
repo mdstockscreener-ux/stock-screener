@@ -8,6 +8,7 @@ import {
   IconCalendar,
   IconChart,
   IconMarket,
+  IconPortfolio,
   IconTrendUp,
   IconChevronRight,
   IconTable,
@@ -45,6 +46,12 @@ const NAV_ITEMS: NavItem[] = [
         label: 'Bulk - Security - wise Price Volume Data',
       },
     ],
+  },
+  {
+    id: 'stock-analysis',
+    href: '/stock-analysis',
+    label: 'Stock Analysis',
+    icon: IconPortfolio,
   },
   {
     id: 'bottom-out',

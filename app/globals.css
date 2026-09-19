@@ -877,6 +877,7 @@ body {
 .dot.purple { background: #7c3aed; }
 .dot.green { background: #16a34a; }
 .dot.amber { background: #d97706; }
+.dot.red { background: var(--negative); }
 
 .chart-tooltip {
   background: var(--surface);
@@ -3672,3 +3673,283 @@ tbody tr:last-child td {
     gap: 0.5rem;
   }
 }
+
+/* ============================================================
+   Stock Analysis  (prefix: sa-)
+   Self-contained block — reuses the tokens above plus .bos-* /
+   .bt-* / .state-message from the shared blocks, adds no
+   overrides to them.
+   ============================================================ */
+
+.sa-muted {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.sa-price {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sa-note {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.sa-positive {
+  color: var(--positive);
+}
+
+.sa-negative {
+  color: var(--negative);
+}
+
+.sa-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.75rem;
+}
+
+.sa-metric-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.85rem;
+}
+
+.sa-metric-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.sa-metric-value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sa-metric-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.sa-table-wrap {
+  overflow-x: auto;
+}
+
+.sa-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.sa-table th {
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--border);
+}
+
+.sa-table td {
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text);
+}
+
+.sa-th-r,
+.sa-td-r {
+  text-align: right;
+}
+
+.sa-row-self {
+  background: var(--accent-light);
+  font-weight: 600;
+}
+
+.sa-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.sa-range-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.sa-range-toggle button {
+  padding: 0.3rem 0.7rem;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sa-range-toggle button:first-child {
+  border-left: none;
+}
+
+.sa-range-toggle button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.sa-news-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  background: var(--accent-light);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.sa-news-summary-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--accent);
+}
+
+.sa-news-summary p {
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.sa-news-error {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.sa-news-error .sa-news-summary-label {
+  color: var(--negative);
+}
+
+.sa-news-error p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+}
+
+.sa-news-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  list-style: none;
+}
+
+.sa-news-item {
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.sa-news-item-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.sa-news-date {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.sa-news-headline {
+  font-size: 0.9rem;
+  color: var(--text);
+  margin-bottom: 0.4rem;
+}
+
+.sa-news-headline a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.sa-news-headline a:hover {
+  text-decoration: underline;
+}
+
+.sa-news-source {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.sa-news-moves {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.sa-news-ai {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+  font-size: 0.8rem;
+}
+
+.sa-news-driver {
+  color: var(--text-secondary);
+}
+
+.sa-news-confidence {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.sa-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.sa-tag-news { background: var(--accent-light); color: var(--accent); }
+.sa-tag-corp { background: #f3e8ff; color: #7c3aed; }
+.sa-tag-insider { background: #fef3c7; color: #92400e; }
+.sa-tag-deal { background: #e0f2fe; color: #0369a1; }
+.sa-tag-buy { background: #dcfce7; color: var(--positive); }
+.sa-tag-sell { background: #fee2e2; color: var(--negative); }
+.sa-tag-neutral { background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border); }
