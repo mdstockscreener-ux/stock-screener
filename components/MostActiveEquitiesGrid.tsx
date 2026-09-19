@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { todayIstIso } from '@/lib/istDate';
 
 // ── Tab definitions ──────────────────────────────────────────────────────────
 
@@ -474,6 +475,7 @@ export default function MostActiveEquitiesGrid(): JSX.Element {
   const [timestamp, setTimestamp] = useState<string>('');
   const [spinning, setSpinning] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>(() => todayIstIso());
 
   const copySymbols = useCallback(async () => {
     if (rows.length === 0) return;
@@ -497,31 +499,31 @@ export default function MostActiveEquitiesGrid(): JSX.Element {
   }, [rows]);
 
   const getApiUrl = useCallback(
-    (tab: TabId, sort: 'volume' | 'value'): string => {
+    (tab: TabId, sort: 'volume' | 'value', date: string): string => {
       switch (tab) {
         case 'main':
-          return `/api/most-active/securities?index=${sort}`;
+          return `/api/most-active/securities?index=${sort}&date=${date}`;
         case 'sme':
-          return `/api/most-active/sme?index=${sort}`;
+          return `/api/most-active/sme?index=${sort}&date=${date}`;
         case 'etf':
-          return '/api/most-active/etf';
+          return `/api/most-active/etf?date=${date}`;
         case 'price-spurts':
-          return '/api/most-active/price-spurts';
+          return `/api/most-active/price-spurts?date=${date}`;
         case 'volume-spurts':
-          return '/api/most-active/volume-spurts';
+          return `/api/most-active/volume-spurts?date=${date}`;
       }
     },
     []
   );
 
   const fetchData = useCallback(
-    async (tab: TabId, sort: 'volume' | 'value') => {
+    async (tab: TabId, sort: 'volume' | 'value', date: string) => {
       setSpinning(true);
       setLoading(true);
       setError(null);
       setRows([]);
       try {
-        const res = await fetch(getApiUrl(tab, sort));
+        const res = await fetch(getApiUrl(tab, sort, date));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json: ApiResponse = await res.json();
         setRows(json.data ?? []);
@@ -544,8 +546,8 @@ export default function MostActiveEquitiesGrid(): JSX.Element {
   );
 
   useEffect(() => {
-    fetchData(activeTab, sortBy);
-  }, [activeTab, sortBy, fetchData]);
+    fetchData(activeTab, sortBy, selectedDate);
+  }, [activeTab, sortBy, selectedDate, fetchData]);
 
   const currentTab = TABS.find((t) => t.id === activeTab)!;
 
@@ -555,23 +557,29 @@ export default function MostActiveEquitiesGrid(): JSX.Element {
       <div className="mae-header">
         <div className="mae-header-left">
           <h1 className="mae-title">Most Active Equities</h1>
-          {timestamp && (
-            <div className="mae-meta-row">
-              <span className="mae-timestamp">As on {timestamp}</span>
-              <button
-                type="button"
-                className={`mae-refresh-btn ${spinning ? 'spinning' : ''}`}
-                onClick={() => fetchData(activeTab, sortBy)}
-                title="Refresh data"
-                aria-label="Refresh most active equities data"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M23 4v6h-6" />
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                </svg>
-              </button>
-            </div>
-          )}
+          <div className="mae-meta-row">
+            <input
+              type="date"
+              className="mae-date-input"
+              value={selectedDate}
+              max={todayIstIso()}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              aria-label="Select date"
+            />
+            {timestamp && <span className="mae-timestamp">As on {timestamp}</span>}
+            <button
+              type="button"
+              className={`mae-refresh-btn ${spinning ? 'spinning' : ''}`}
+              onClick={() => fetchData(activeTab, sortBy, selectedDate)}
+              title="Refresh data"
+              aria-label="Refresh most active equities data"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 4v6h-6" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -673,7 +681,7 @@ export default function MostActiveEquitiesGrid(): JSX.Element {
       {!loading && error && (
         <div className="state-message empty">
           <p style={{ color: 'var(--negative)' }}>Error: {error}</p>
-          <button type="button" className="mae-retry-btn" onClick={() => fetchData(activeTab, sortBy)}>
+          <button type="button" className="mae-retry-btn" onClick={() => fetchData(activeTab, sortBy, selectedDate)}>
             Retry
           </button>
         </div>

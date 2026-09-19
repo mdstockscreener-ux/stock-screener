@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import TopNav from '@/components/layout/TopNav';
 import Sidebar from '@/components/layout/Sidebar';
 import ResultsAsOfBadge from '@/components/results/ResultsAsOfBadge';
@@ -28,6 +28,7 @@ export default function ResultsCalendarPage(): JSX.Element {
   const [view, setView] = useState<ViewMode>('grouped');
   const [sortKey, setSortKey] = useState<ResultsSortKey>('board_meeting_date');
   const [sortDir, setSortDir] = useState<ResultsSortDir>('asc');
+  const [copied, setCopied] = useState(false);
 
   // Read after mount, not during render: localStorage does not exist on the
   // server, and seeding state from it would desync hydration.
@@ -68,6 +69,30 @@ export default function ResultsCalendarPage(): JSX.Element {
   const days = useMemo(() => groupByDate(visible), [visible]);
   const sorted = useMemo(() => sortRows(visible, sortKey, sortDir), [visible, sortKey, sortDir]);
 
+  const copySymbols = useCallback(async () => {
+    if (visible.length === 0) return;
+    // A symbol can appear more than once (multiple purposes/dates) — dedupe.
+    const uniqueSymbols = [...new Set(visible.map((r) => r.symbol.toLowerCase()))];
+    const text = uniqueSymbols.join(', ');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [visible]);
+
   // Counted before the superseded filter, so the toggle can offer what it hides.
   const supersededCount = useMemo(
     () =>
@@ -104,9 +129,20 @@ export default function ResultsCalendarPage(): JSX.Element {
                 data means running the collector.
               </p>
             </div>
-            <button type="button" className="bos-btn-ghost" onClick={reload} disabled={loading}>
-              {loading ? 'Loading…' : 'Reload data'}
-            </button>
+            <div className="bos-panel-head-right">
+              <button
+                type="button"
+                className="bos-btn-ghost"
+                onClick={copySymbols}
+                disabled={visible.length === 0}
+                title={copied ? 'Copied!' : 'Copy symbols as comma-separated values'}
+              >
+                {copied ? 'Copied!' : 'Copy Symbols'}
+              </button>
+              <button type="button" className="bos-btn-ghost" onClick={reload} disabled={loading}>
+                {loading ? 'Loading…' : 'Reload data'}
+              </button>
+            </div>
           </section>
 
           {error && (

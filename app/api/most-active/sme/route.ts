@@ -1,17 +1,20 @@
-import { NextRequest } from 'next/server';
-import { fetchFromNse } from '@/lib/nseProxy';
+import { NextRequest, NextResponse } from 'next/server';
+import { getDatasetRows } from '@/lib/marketDataSync';
+import { mapSecurityDbRow } from '@/lib/mostActiveRowMapping';
+import { formatIstTimestamp, todayIstIso } from '@/lib/istDate';
 
 export async function GET(req: NextRequest): Promise<Response> {
   const index = req.nextUrl.searchParams.get('index') ?? 'volume';
-  const url = `https://www.nseindia.com/api/live-analysis-most-active-sme?index=${index}`;
+  const date = req.nextUrl.searchParams.get('date') ?? todayIstIso();
+  const datasetKey = index === 'value' ? 'most-active-sme-value' : 'most-active-sme-volume';
+
   try {
-    const result = await fetchFromNse(url, 'most-active-sme');
-    return new Response(result.body, {
-      status: result.status,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const rows = await getDatasetRows(datasetKey, date);
+    const data = rows.map(mapSecurityDbRow);
+    const timestamp = rows.length > 0 ? formatIstTimestamp(rows[0].fetched_at as string) : null;
+    return NextResponse.json({ data, timestamp });
   } catch (error) {
-    console.error('NSE most-active/sme proxy error:', error);
-    return Response.json({ error: 'Failed to fetch data from NSE' }, { status: 500 });
+    console.error('most-active/sme read error:', error);
+    return NextResponse.json({ error: 'Failed to load most active SME data' }, { status: 500 });
   }
 }

@@ -1,16 +1,18 @@
-import { fetchFromNse } from '@/lib/nseProxy';
+import { NextRequest, NextResponse } from 'next/server';
+import { getDatasetRows } from '@/lib/marketDataSync';
+import { mapSecurityDbRow } from '@/lib/mostActiveRowMapping';
+import { formatIstTimestamp, todayIstIso } from '@/lib/istDate';
 
-const NSE_URL = 'https://www.nseindia.com/api/live-analysis-most-active-etf?index=volume';
+export async function GET(req: NextRequest): Promise<Response> {
+  const date = req.nextUrl.searchParams.get('date') ?? todayIstIso();
 
-export async function GET(): Promise<Response> {
   try {
-    const result = await fetchFromNse(NSE_URL, 'most-active-etf');
-    return new Response(result.body, {
-      status: result.status,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const rows = await getDatasetRows('most-active-etf', date);
+    const data = rows.map(mapSecurityDbRow);
+    const timestamp = rows.length > 0 ? formatIstTimestamp(rows[0].fetched_at as string) : null;
+    return NextResponse.json({ data, timestamp });
   } catch (error) {
-    console.error('NSE most-active/etf proxy error:', error);
-    return Response.json({ error: 'Failed to fetch data from NSE' }, { status: 500 });
+    console.error('most-active/etf read error:', error);
+    return NextResponse.json({ error: 'Failed to load most active ETF data' }, { status: 500 });
   }
 }

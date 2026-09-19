@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { todayIstIso } from '@/lib/istDate';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -88,6 +89,7 @@ export default function VolumeGainersGrid(): JSX.Element {
   const [timestamp, setTimestamp] = useState<string>('');
   const [spinning, setSpinning] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>(() => todayIstIso());
 
   const copySymbols = useCallback(async () => {
     if (rows.length === 0) return;
@@ -111,28 +113,32 @@ export default function VolumeGainersGrid(): JSX.Element {
     }
   }, [rows]);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (date: string) => {
     setSpinning(true);
+    setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/volume-gainers');
+      const res = await fetch(`/api/volume-gainers?date=${date}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: ApiResponse = await res.json();
       setRows(json.data ?? []);
-      // Build a display timestamp
-      const now = new Date();
-      const datePart = now.toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-      const timePart = now.toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      });
-      setTimestamp(`${datePart} ${timePart} IST`);
+      if (json.timestamp) {
+        setTimestamp(json.timestamp);
+      } else {
+        const now = new Date();
+        const datePart = now.toLocaleDateString('en-IN', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        });
+        const timePart = now.toLocaleTimeString('en-IN', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        });
+        setTimestamp(`${datePart} ${timePart} IST`);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load data');
     } finally {
@@ -142,8 +148,8 @@ export default function VolumeGainersGrid(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchData(selectedDate);
+  }, [selectedDate, fetchData]);
 
   return (
     <div className="vg-wrapper">
@@ -151,23 +157,29 @@ export default function VolumeGainersGrid(): JSX.Element {
       <div className="vg-topbar">
         <div className="vg-topbar-left">
           <h1 className="vg-title">Volume Gainers</h1>
-          {timestamp && (
-            <div className="vg-meta-row">
-              <span className="vg-timestamp">As on {timestamp}</span>
-              <button
-                type="button"
-                className={`vg-refresh-btn ${spinning ? 'spinning' : ''}`}
-                onClick={fetchData}
-                title="Refresh data"
-                aria-label="Refresh volume gainers data"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M23 4v6h-6" />
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                </svg>
-              </button>
-            </div>
-          )}
+          <div className="vg-meta-row">
+            <input
+              type="date"
+              className="vg-date-input"
+              value={selectedDate}
+              max={todayIstIso()}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              aria-label="Select date"
+            />
+            {timestamp && <span className="vg-timestamp">As on {timestamp}</span>}
+            <button
+              type="button"
+              className={`vg-refresh-btn ${spinning ? 'spinning' : ''}`}
+              onClick={() => fetchData(selectedDate)}
+              title="Refresh data"
+              aria-label="Refresh volume gainers data"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 4v6h-6" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="vg-topbar-right">
@@ -225,7 +237,7 @@ export default function VolumeGainersGrid(): JSX.Element {
       {!loading && error && (
         <div className="state-message empty">
           <p style={{ color: 'var(--negative)' }}>Error: {error}</p>
-          <button type="button" className="vg-retry-btn" onClick={fetchData}>
+          <button type="button" className="vg-retry-btn" onClick={() => fetchData(selectedDate)}>
             Retry
           </button>
         </div>

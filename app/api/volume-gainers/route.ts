@@ -1,16 +1,33 @@
-import { fetchFromNse } from '@/lib/nseProxy';
+import { NextRequest, NextResponse } from 'next/server';
+import { getDatasetRows } from '@/lib/marketDataSync';
+import { formatIstTimestamp, todayIstIso } from '@/lib/istDate';
 
-const NSE_URL = 'https://www.nseindia.com/api/live-analysis-volume-gainers';
+/** Required numeric fields on VolumeGainerRow — null in the DB becomes 0, not NaN. */
+function orZero(v: unknown): number {
+  return v == null ? 0 : Number(v);
+}
 
-export async function GET(): Promise<Response> {
+export async function GET(req: NextRequest): Promise<Response> {
+  const date = req.nextUrl.searchParams.get('date') ?? todayIstIso();
+
   try {
-    const result = await fetchFromNse(NSE_URL, 'volume-gainers');
-    return new Response(result.body, {
-      status: result.status,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const rows = await getDatasetRows('volume-gainers', date);
+    const data = rows.map((row: Record<string, unknown>) => ({
+      symbol: row.symbol,
+      companyName: row.company_name,
+      volume: orZero(row.volume),
+      week1AvgVolume: orZero(row.week1_avg_volume),
+      week1volChange: orZero(row.week1_vol_change),
+      week2AvgVolume: orZero(row.week2_avg_volume),
+      week2volChange: orZero(row.week2_vol_change),
+      ltp: orZero(row.ltp),
+      pChange: orZero(row.p_change),
+      turnover: orZero(row.turnover),
+    }));
+    const timestamp = rows.length > 0 ? formatIstTimestamp(rows[0].fetched_at as string) : null;
+    return NextResponse.json({ data, timestamp });
   } catch (error) {
-    console.error('NSE volume-gainers proxy error:', error);
-    return Response.json({ error: 'Failed to fetch data from NSE' }, { status: 500 });
+    console.error('volume-gainers read error:', error);
+    return NextResponse.json({ error: 'Failed to load volume gainers data' }, { status: 500 });
   }
 }
