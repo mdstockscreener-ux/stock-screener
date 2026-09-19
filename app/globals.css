@@ -3770,6 +3770,12 @@ tbody tr:last-child td {
   color: var(--text);
 }
 
+/* .sa-table th/td (class+element) outrank a bare .sa-th-r/.sa-td-r class on
+   specificity alone, so the qualified form is required here — otherwise
+   text-align: left from .sa-table th silently wins on every header cell
+   regardless of which class is applied in the markup. */
+.sa-table th.sa-th-r,
+.sa-table td.sa-td-r,
 .sa-th-r,
 .sa-td-r {
   text-align: right;
@@ -3778,6 +3784,31 @@ tbody tr:last-child td {
 .sa-row-self {
   background: var(--accent-light);
   font-weight: 600;
+}
+
+/* ── Quarterly financials table: metric rows x quarter columns, sticky first column ── */
+.sa-table-financials th,
+.sa-table-financials td {
+  min-width: 84px;
+}
+
+.sa-th-sticky,
+.sa-td-sticky {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+  box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.1);
+  min-width: 110px !important;
+}
+
+.sa-table-subrow td {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+
+.sa-table-subrow .sa-td-sticky {
+  padding-left: 1.4rem;
+  background: var(--surface-2);
 }
 
 .sa-chart-head {

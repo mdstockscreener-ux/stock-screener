@@ -2,11 +2,14 @@
 
 import { useState } from 'react';
 import CandlestickChart from '@/components/CandlestickChart';
+import HistoricalDataPanel from '@/components/HistoricalDataPanel';
 import NewsPanel from '@/components/NewsPanel';
+import StockAnalysisSearch from '@/components/StockAnalysisSearch';
 import type { AnalyzeResponse } from '@/types/fundamentals';
 import type { TechnicalsResponse } from '@/types/technicals';
 import type { NewsResponse } from '@/types/news';
 import type { TrendStatus } from '@/utils/technicals';
+import type { EquityItem } from '@/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -20,9 +23,26 @@ function fmtPct(n: number | null | undefined, digits = 1): string {
   return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}%`;
 }
 
+/** metrics.marketCap etc. — BharatStock already returns these in Crores (per its own docs), so no scaling here. */
 function fmtCr(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
   return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })} Cr`;
+}
+
+/** Financial-statement line items (revenue, netProfit, ...) — BharatStock returns these in absolute rupees, so divide by 1 crore before display. */
+function fmtRupeesAsCr(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return `₹${(n / 1e7).toLocaleString('en-IN', { maximumFractionDigits: 0 })} Cr`;
+}
+
+function fmtQuarterLabel(q: { quarter: string | null; fiscalYear: string; periodEndDate: string | null }): string {
+  if (q.periodEndDate) {
+    const d = new Date(q.periodEndDate);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+    }
+  }
+  return q.quarter ?? q.fiscalYear;
 }
 
 function pctClass(n: number | null | undefined): string {
@@ -66,6 +86,11 @@ function positionLabel(position: string | null): string {
 
 export default function StockAnalysisPanel(): JSX.Element {
   const [symbolInput, setSymbolInput] = useState('');
+  const [stockNameInput, setStockNameInput] = useState('');
+  // Raw text currently in the search box — used only to tell "typed but never
+  // selected a result" apart from "a result is confirmed", so Analyze can't
+  // silently re-run a stale symbol after a search that found nothing.
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AnalyzeResponse | null>(null);
@@ -74,8 +99,21 @@ export default function StockAnalysisPanel(): JSX.Element {
   const [news, setNews] = useState<NewsResponse | null>(null);
   const [newsError, setNewsError] = useState<string | null>(null);
 
-  const runAnalysis = async () => {
-    const symbol = symbolInput.trim().toUpperCase();
+  const runAnalysis = async (symbolOverride?: string) => {
+    // Only guard the button/Enter path (no override) — a search selection always
+    // passes its symbol explicitly, so it can never trip this.
+    if (symbolOverride === undefined) {
+      const typed = searchQuery.trim();
+      const isUnselected = typed !== '' && typed.toUpperCase() !== symbolInput.trim().toUpperCase();
+      if (isUnselected) {
+        setError(
+          `"${typed}" wasn't selected from the search results — pick a match from the dropdown first.`
+        );
+        return;
+      }
+    }
+
+    const symbol = (symbolOverride ?? symbolInput).trim().toUpperCase();
     if (!symbol) {
       setError('Enter a symbol to analyze.');
       return;
@@ -148,9 +186,18 @@ export default function StockAnalysisPanel(): JSX.Element {
     setLoading(false);
   };
 
+  const handleStockSelect = (item: EquityItem) => {
+    setSymbolInput(item.symbol);
+    setStockNameInput(item.name);
+    setSearchQuery('');
+    runAnalysis(item.symbol);
+  };
+
   const detail = data?.stockDetail;
   const metrics = detail?.metrics;
   const price = detail?.latestPrice;
+  // Most-recent-first from the API; oldest-to-newest reads left-to-right, matching how a trend is normally scanned.
+  const quartersAsc = data ? [...data.quarterlyGrowth].reverse() : [];
 
   return (
     <div>
@@ -175,7 +222,7 @@ export default function StockAnalysisPanel(): JSX.Element {
         <div className="bos-panel-head">
           <div>
             <h2 className="bos-panel-title">Look up a stock</h2>
-            <p className="bos-panel-sub">Enter an NSE symbol, e.g. RELIANCE, TCS, INFY.</p>
+            <p className="bos-panel-sub">Search by company name or symbol, e.g. Reliance, TCS, INFY.</p>
           </div>
           <div className="bos-panel-head-right">
             <button type="submit" className="bos-btn-primary" disabled={loading}>
@@ -184,23 +231,13 @@ export default function StockAnalysisPanel(): JSX.Element {
           </div>
         </div>
 
-        <div className="bt-field-grid">
-          <div className="bt-field">
-            <label className="bt-field-label" htmlFor="sa-symbol">
-              Symbol
-            </label>
-            <input
-              id="sa-symbol"
-              className="bt-input"
-              type="text"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="e.g. RELIANCE"
-              value={symbolInput}
-              onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
-            />
-          </div>
-        </div>
+        <StockAnalysisSearch
+          value={symbolInput}
+          stockName={stockNameInput}
+          onChange={handleStockSelect}
+          onQueryChange={setSearchQuery}
+          disabled={loading}
+        />
       </form>
 
       {loading && (
@@ -405,6 +442,15 @@ export default function StockAnalysisPanel(): JSX.Element {
                   )}
                 </p>
               </div>
+              {data.peerRanking.averagePe != null && (
+                <div className="bos-panel-head-right">
+                  <div className="sa-metric-tile">
+                    <span className="sa-metric-label">Sector Avg P/E</span>
+                    <span className="sa-metric-value">{fmtNum(data.peerRanking.averagePe)}</span>
+                    <span className="sa-metric-sub">median {fmtNum(data.peerRanking.medianPe)}</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {data.peers.length === 0 ? (
@@ -444,6 +490,13 @@ export default function StockAnalysisPanel(): JSX.Element {
                 </table>
               </div>
             )}
+
+            <p className="sa-note">
+              P/E here comes from BharatStock&rsquo;s sector-comparison data, which can differ from
+              the P/E in the Valuation panel above (e.g. it may use the latest single quarter&rsquo;s
+              EPS rather than trailing-twelve-month EPS) — the same gap applies across every peer
+              in this table, so relative ranking is more reliable than the exact number matching.
+            </p>
           </div>
 
           {/* ── Quarterly growth ── */}
@@ -451,7 +504,9 @@ export default function StockAnalysisPanel(): JSX.Element {
             <div className="bos-panel-head">
               <div>
                 <h2 className="bos-panel-title">Quarterly performance</h2>
-                <p className="bos-panel-sub">Revenue and net profit, QoQ and YoY.</p>
+                <p className="bos-panel-sub">
+                  Revenue and net profit by quarter, oldest to newest — QoQ/YoY rows underneath each.
+                </p>
               </div>
             </div>
 
@@ -459,39 +514,84 @@ export default function StockAnalysisPanel(): JSX.Element {
               <p className="sa-muted">No quarterly financials available.</p>
             ) : (
               <div className="sa-table-wrap">
-                <table className="sa-table">
+                <table className="sa-table sa-table-financials">
                   <thead>
                     <tr>
-                      <th>Quarter</th>
-                      <th className="sa-th-r">Revenue</th>
-                      <th className="sa-th-r">QoQ</th>
-                      <th className="sa-th-r">YoY</th>
-                      <th className="sa-th-r">Net Profit</th>
-                      <th className="sa-th-r">QoQ</th>
-                      <th className="sa-th-r">YoY</th>
-                      <th className="sa-th-r">EPS</th>
+                      <th className="sa-th-sticky">Metric</th>
+                      {quartersAsc.map((q) => (
+                        <th key={`${q.fiscalYear}-${q.quarter}-${q.periodEndDate}`} className="sa-th-r">
+                          {fmtQuarterLabel(q)}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {data.quarterlyGrowth.map((q) => (
-                      <tr key={`${q.fiscalYear}-${q.quarter}-${q.periodEndDate}`}>
-                        <td>
-                          {q.quarter ?? q.fiscalYear} {q.periodEndDate ? `(${q.periodEndDate})` : ''}
+                    <tr>
+                      <td className="sa-td-sticky">Revenue</td>
+                      {quartersAsc.map((q) => (
+                        <td key={`rev-${q.periodEndDate}`} className="sa-td-r">
+                          {fmtRupeesAsCr(q.revenue)}
                         </td>
-                        <td className="sa-td-r">{fmtCr(q.revenue)}</td>
-                        <td className={`sa-td-r ${pctClass(q.revenueQoqPct)}`}>{fmtPct(q.revenueQoqPct)}</td>
-                        <td className={`sa-td-r ${pctClass(q.revenueYoyPct)}`}>{fmtPct(q.revenueYoyPct)}</td>
-                        <td className="sa-td-r">{fmtCr(q.netProfit)}</td>
-                        <td className={`sa-td-r ${pctClass(q.netProfitQoqPct)}`}>{fmtPct(q.netProfitQoqPct)}</td>
-                        <td className={`sa-td-r ${pctClass(q.netProfitYoyPct)}`}>{fmtPct(q.netProfitYoyPct)}</td>
-                        <td className="sa-td-r">{fmtNum(q.eps)}</td>
-                      </tr>
-                    ))}
+                      ))}
+                    </tr>
+                    <tr className="sa-table-subrow">
+                      <td className="sa-td-sticky">QoQ</td>
+                      {quartersAsc.map((q) => (
+                        <td key={`revqoq-${q.periodEndDate}`} className={`sa-td-r ${pctClass(q.revenueQoqPct)}`}>
+                          {fmtPct(q.revenueQoqPct)}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="sa-table-subrow">
+                      <td className="sa-td-sticky">YoY</td>
+                      {quartersAsc.map((q) => (
+                        <td key={`revyoy-${q.periodEndDate}`} className={`sa-td-r ${pctClass(q.revenueYoyPct)}`}>
+                          {fmtPct(q.revenueYoyPct)}
+                        </td>
+                      ))}
+                    </tr>
+
+                    <tr>
+                      <td className="sa-td-sticky">Net Profit</td>
+                      {quartersAsc.map((q) => (
+                        <td key={`np-${q.periodEndDate}`} className="sa-td-r">
+                          {fmtRupeesAsCr(q.netProfit)}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="sa-table-subrow">
+                      <td className="sa-td-sticky">QoQ</td>
+                      {quartersAsc.map((q) => (
+                        <td key={`npqoq-${q.periodEndDate}`} className={`sa-td-r ${pctClass(q.netProfitQoqPct)}`}>
+                          {fmtPct(q.netProfitQoqPct)}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="sa-table-subrow">
+                      <td className="sa-td-sticky">YoY</td>
+                      {quartersAsc.map((q) => (
+                        <td key={`npyoy-${q.periodEndDate}`} className={`sa-td-r ${pctClass(q.netProfitYoyPct)}`}>
+                          {fmtPct(q.netProfitYoyPct)}
+                        </td>
+                      ))}
+                    </tr>
+
+                    <tr>
+                      <td className="sa-td-sticky">EPS (₹)</td>
+                      {quartersAsc.map((q) => (
+                        <td key={`eps-${q.periodEndDate}`} className="sa-td-r">
+                          {fmtNum(q.eps)}
+                        </td>
+                      ))}
+                    </tr>
                   </tbody>
                 </table>
               </div>
             )}
           </div>
+
+          {/* ── Key metrics & historical data (NSE) ── */}
+          <HistoricalDataPanel symbol={data.symbol} />
 
           {/* ── News & events ── */}
           {newsError && (

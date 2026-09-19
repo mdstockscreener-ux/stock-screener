@@ -54,12 +54,16 @@ describe('computePeerPeRanking', () => {
     const result = computePeerPeRanking('self', peers);
     assert.equal(result.peerCount, 4);
     assert.equal(result.peRankPercentile, 50); // AAA + SELF <= 15
+    assert.equal(result.averagePe, 18.75); // (10+20+30+15)/4
+    assert.equal(result.medianPe, 17.5); // sorted [10,15,20,30] -> avg of middle two
   });
 
-  it('returns null when the symbol is not in the peer set', () => {
+  it('still computes average/median PE when the symbol is not in the peer set', () => {
     const peers = [peer('AAA', 10), peer('BBB', 20)];
     const result = computePeerPeRanking('ZZZ', peers);
     assert.equal(result.peRankPercentile, null);
+    assert.equal(result.averagePe, 15);
+    assert.equal(result.medianPe, 15);
   });
 
   it('drops peers with no PE from the ranking pool', () => {
@@ -67,6 +71,16 @@ describe('computePeerPeRanking', () => {
     const result = computePeerPeRanking('SELF', peers);
     assert.equal(result.peerCount, 1);
     assert.equal(result.peRankPercentile, 100);
+    assert.equal(result.averagePe, 10);
+  });
+
+  it('returns nulls when no peer has a PE at all', () => {
+    const peers = [peer('AAA', null), peer('BBB', null)];
+    const result = computePeerPeRanking('AAA', peers);
+    assert.equal(result.peerCount, 0);
+    assert.equal(result.peRankPercentile, null);
+    assert.equal(result.averagePe, null);
+    assert.equal(result.medianPe, null);
   });
 });
 

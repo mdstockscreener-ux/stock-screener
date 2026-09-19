@@ -57,6 +57,10 @@ export interface PeerRanking {
   peerCount: number;
   /** 0–100: the % of peers (with a PE) priced at or below this symbol's PE. Null if the symbol isn't in the peer set. */
   peRankPercentile: number | null;
+  /** Arithmetic mean PE across every peer with a PE (self included, if present). Null if no peer has a PE. */
+  averagePe: number | null;
+  /** Middle value — less skewed by a single outlier peer than the average. Null if no peer has a PE. */
+  medianPe: number | null;
 }
 
 /** Ranks a symbol's PE against its sector peer set (plan doc §2.3, "Peer PE comparison"). */
@@ -64,14 +68,22 @@ export function computePeerPeRanking(symbol: string, peers: ComparisonItem[]): P
   const withPe = peers.filter(
     (p): p is ComparisonItem & { peRatio: number } => typeof p.peRatio === 'number' && Number.isFinite(p.peRatio)
   );
-  const self = withPe.find((p) => p.symbol.toUpperCase() === symbol.toUpperCase());
 
-  if (!self || withPe.length === 0) {
-    return { peerCount: withPe.length, peRankPercentile: null };
+  if (withPe.length === 0) {
+    return { peerCount: 0, peRankPercentile: null, averagePe: null, medianPe: null };
   }
 
-  const countAtOrBelow = withPe.filter((p) => p.peRatio <= self.peRatio).length;
-  return { peerCount: withPe.length, peRankPercentile: (countAtOrBelow / withPe.length) * 100 };
+  const averagePe = withPe.reduce((sum, p) => sum + p.peRatio, 0) / withPe.length;
+  const sortedPe = withPe.map((p) => p.peRatio).sort((a, b) => a - b);
+  const mid = Math.floor(sortedPe.length / 2);
+  const medianPe = sortedPe.length % 2 === 0 ? (sortedPe[mid - 1] + sortedPe[mid]) / 2 : sortedPe[mid];
+
+  const self = withPe.find((p) => p.symbol.toUpperCase() === symbol.toUpperCase());
+  const peRankPercentile = self
+    ? (withPe.filter((p) => p.peRatio <= self.peRatio).length / withPe.length) * 100
+    : null;
+
+  return { peerCount: withPe.length, peRankPercentile, averagePe, medianPe };
 }
 
 export interface QuarterGrowthRow {
